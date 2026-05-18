@@ -46,6 +46,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import java.util.concurrent.Executors
 import android.util.Log
+import android.widget.Toast
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanIntentResult
+import com.journeyapps.barcodescanner.ScanOptions
 
 data class Product(
     val id: String,
@@ -67,22 +71,33 @@ data class ProductCategory(
 )
 
 @Composable
-fun ProductsScreen(modifier: Modifier = Modifier) {
+fun ProductsScreen(
+
+    modifier: Modifier = Modifier,
+
+    onStartScanner: () -> Unit
+
+) {
     val context = LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("barcode_prefs", android.content.Context.MODE_PRIVATE) }
-    
+    val sharedPrefs = remember {
+        context.getSharedPreferences(
+            "barcode_prefs",
+            android.content.Context.MODE_PRIVATE
+        )
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var sortBy by remember { mutableStateOf("NAME") }
     var selectedCategoryFilter by remember { mutableStateOf("Все") }
     var selectedNavIndex by remember { mutableIntStateOf(1) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingProduct by remember { mutableStateOf<Product?>(null) }
-    
+
     // Load initial mappings
-    var barcodeMappings by remember { 
+    var barcodeMappings by remember {
         mutableStateOf(
             sharedPrefs.all.mapValues { it.value.toString() }
-        ) 
+        )
     }
 
     val initialCategories = remember {
@@ -92,9 +107,36 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 3,
                 icon = "🥛",
                 products = listOf(
-                    Product("1", "Молоко", "1 л", "Холодильник", 0, "🥛", manufactureDate = "10.05.25", expiryDate = "10.05.25"),
-                    Product("2", "Масло сливочное", "200 г", "Холодильник", 7, "🧈", manufactureDate = "01.05.25", expiryDate = "17.05.25"),
-                    Product("3", "Сыр Гауда", "300 г", "Холодильник", 2, "🧀", manufactureDate = "05.05.25", expiryDate = "12.05.25")
+                    Product(
+                        "1",
+                        "Молоко",
+                        "1 л",
+                        "Холодильник",
+                        0,
+                        "🥛",
+                        manufactureDate = "10.05.25",
+                        expiryDate = "10.05.25"
+                    ),
+                    Product(
+                        "2",
+                        "Масло сливочное",
+                        "200 г",
+                        "Холодильник",
+                        7,
+                        "🧈",
+                        manufactureDate = "01.05.25",
+                        expiryDate = "17.05.25"
+                    ),
+                    Product(
+                        "3",
+                        "Сыр Гауда",
+                        "300 г",
+                        "Холодильник",
+                        2,
+                        "🧀",
+                        manufactureDate = "05.05.25",
+                        expiryDate = "12.05.25"
+                    )
                 )
             ),
             ProductCategory(
@@ -102,7 +144,16 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 1,
                 icon = "📦",
                 products = listOf(
-                    Product("4", "Яйца", "2 шт", "Холодильник", 10, "🥚", manufactureDate = "10.05.25", expiryDate = "20.05.25")
+                    Product(
+                        "4",
+                        "Яйца",
+                        "2 шт",
+                        "Холодильник",
+                        10,
+                        "🥚",
+                        manufactureDate = "10.05.25",
+                        expiryDate = "20.05.25"
+                    )
                 )
             ),
             ProductCategory(
@@ -110,8 +161,26 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 2,
                 icon = "🥩",
                 products = listOf(
-                    Product("5", "Говядина", "1 кг", "Морозильник", 28, "🥩", manufactureDate = "01.05.25", expiryDate = "29.05.25"),
-                    Product("6", "Куриная грудка", "500 г", "Холодильник", 0, "🍗", manufactureDate = "10.05.25", expiryDate = "10.05.25")
+                    Product(
+                        "5",
+                        "Говядина",
+                        "1 кг",
+                        "Морозильник",
+                        28,
+                        "🥩",
+                        manufactureDate = "01.05.25",
+                        expiryDate = "29.05.25"
+                    ),
+                    Product(
+                        "6",
+                        "Куриная грудка",
+                        "500 г",
+                        "Холодильник",
+                        0,
+                        "🍗",
+                        manufactureDate = "10.05.25",
+                        expiryDate = "10.05.25"
+                    )
                 )
             )
         )
@@ -156,7 +225,10 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                     contentColor = Color.White,
                     shape = CircleShape
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_product))
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = stringResource(R.string.add_product)
+                    )
                 }
             }
         },
@@ -170,7 +242,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                             query = searchQuery,
                             onQueryChange = { searchQuery = it }
                         )
-                        
+
                         SortingChips(
                             selectedSort = sortBy,
                             onSortSelected = { sortBy = it }
@@ -187,11 +259,12 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                             contentPadding = PaddingValues(bottom = 80.dp)
                         ) {
                             if (selectedCategoryFilter == "Все") {
-                                val allProducts = filteredCategories.flatMap { it.products }.let { products ->
-                                    if (sortBy == "NAME") products.sortedBy { it.name }
-                                    else products.sortedBy { it.expiryDays }
-                                }
-                                
+                                val allProducts =
+                                    filteredCategories.flatMap { it.products }.let { products ->
+                                        if (sortBy == "NAME") products.sortedBy { it.name }
+                                        else products.sortedBy { it.expiryDays }
+                                    }
+
                                 item {
                                     Card(
                                         modifier = Modifier
@@ -200,7 +273,10 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                                         shape = RoundedCornerShape(24.dp),
                                         colors = CardDefaults.cardColors(containerColor = Color.White),
                                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF0F2F5))
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            Color(0xFFF0F2F5)
+                                        )
                                     ) {
                                         Column {
                                             allProducts.forEachIndexed { index, product ->
@@ -211,7 +287,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                                                             cat.copy(products = cat.products.map { if (it.id == updatedProduct.id) updatedProduct else it })
                                                         }
                                                     },
-                                                    onDelete = { 
+                                                    onDelete = {
                                                         categories = categories.map { cat ->
                                                             cat.copy(products = cat.products.filter { it.id != product.id })
                                                         }
@@ -219,7 +295,11 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                                                     onEdit = { editingProduct = product }
                                                 )
                                                 if (index < (allProducts.size - 1)) {
-                                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF0F2F5))
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.padding(
+                                                            horizontal = 16.dp
+                                                        ), color = Color(0xFFF0F2F5)
+                                                    )
                                                 }
                                             }
                                         }
@@ -246,9 +326,11 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 }
+
                 3 -> RecipesTab()
                 4 -> SettingsTab()
                 2 -> ScannerTab(
+                    onStartScanner = onStartScanner,
                     barcodeMappings = barcodeMappings,
                     onProductIdentified = { name, barcode ->
                         // Show add dialog with pre-filled name if needed
@@ -261,7 +343,10 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                     onAddProduct = { newProduct, categoryName, barcode ->
                         categories = categories.map { cat ->
                             if (cat.name == categoryName) {
-                                cat.copy(products = cat.products + newProduct, count = cat.count + 1)
+                                cat.copy(
+                                    products = cat.products + newProduct,
+                                    count = cat.count + 1
+                                )
                             } else cat
                         }
                         if (barcode != null) {
@@ -280,6 +365,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 )
+
                 else -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("В разработке", color = Color.Gray)
@@ -373,7 +459,9 @@ fun ProductsTopBar() {
                 .background(Color(0xFF1976D2)),
             contentAlignment = Alignment.Center
         ) {
-            Box(modifier = Modifier.size(24.dp).background(Color.White.copy(alpha = 0.3f)))
+            Box(modifier = Modifier
+                .size(24.dp)
+                .background(Color.White.copy(alpha = 0.3f)))
         }
         Spacer(modifier = Modifier.width(12.dp))
         Text(
@@ -399,7 +487,7 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
             onValueChange = onQueryChange,
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(stringResource(R.string.search_placeholder), color = Color.Gray) },
-            leadingIcon = { 
+            leadingIcon = {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_search),
                     contentDescription = null,
@@ -436,7 +524,10 @@ fun SortingChips(selectedSort: String, onSortSelected: (String) -> Unit) {
                 onClick = { onSortSelected(id) },
                 shape = RoundedCornerShape(20.dp),
                 color = if (isSelected) Color(0xFF1976D2) else Color.White,
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E2E5))
+                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color(0xFFE0E2E5)
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -477,7 +568,10 @@ fun CategoryFilterChips(
                 onClick = { onCategorySelected(category) },
                 shape = RoundedCornerShape(20.dp),
                 color = if (isSelected) Color(0xFF1A1C1E) else Color.White,
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E2E5))
+                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color(0xFFE0E2E5)
+                )
             ) {
                 Text(
                     text = category,
@@ -532,7 +626,7 @@ fun CategorySection(
                 modifier = Modifier.size(20.dp)
             )
         }
-        
+
         if (isExpanded) {
             Card(
                 modifier = Modifier
@@ -552,7 +646,10 @@ fun CategorySection(
                             onEdit = { onEditProduct(product) }
                         )
                         if (index < (category.products.size - 1)) {
-                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF0F2F5))
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = Color(0xFFF0F2F5)
+                            )
                         }
                     }
                 }
@@ -583,9 +680,9 @@ fun ProductItem(
         ) {
             Text(product.icon, fontSize = 20.sp)
         }
-        
+
         Spacer(modifier = Modifier.width(12.dp))
-        
+
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -598,7 +695,7 @@ fun ProductItem(
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF1A1C1E)
                 )
-                
+
                 val expiryText = if (product.expiryDays == 0) {
                     stringResource(R.string.today)
                 } else if (product.expiryDays < 0) {
@@ -606,8 +703,9 @@ fun ProductItem(
                 } else {
                     stringResource(R.string.days_left, product.expiryDays)
                 }
-                
-                val expiryColor = if (product.expiryDays <= 2) Color(0xFFF44336) else Color(0xFF4CAF50)
+
+                val expiryColor =
+                    if (product.expiryDays <= 2) Color(0xFFF44336) else Color(0xFF4CAF50)
                 val expiryBg = if (product.expiryDays <= 2) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -625,9 +723,9 @@ fun ProductItem(
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -672,9 +770,9 @@ fun ProductItem(
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.width(8.dp))
-        
+
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_delete),
@@ -730,7 +828,7 @@ fun calculateDaysRemaining(expiryDateStr: String): Int {
         calendar.set(java.util.Calendar.SECOND, 0)
         calendar.set(java.util.Calendar.MILLISECOND, 0)
         val today = calendar.time
-        
+
         val diff = expiryDate.time - today.time
         (diff / (1000 * 60 * 60 * 24)).toInt()
     } catch (e: Exception) {
@@ -778,7 +876,8 @@ fun DatePickerField(
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
                         val date = java.util.Date(millis)
-                        val format = java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault())
+                        val format =
+                            java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault())
                         onValueChange(format.format(date))
                     }
                     showPicker = false
@@ -798,8 +897,189 @@ fun DatePickerField(
 }
 
 val ALL_ICONS = listOf(
-    "🥛", "🧈", "🧀", "🥚", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🥪", "🥙", "🌮", "🌯", "🥗", "🥘", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🍤", "🍙", "🍚", "🍘", "🍥", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "☕", "🍵", "🥤", "🍶", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🍽", "🥣", "🥡", "🥢", "🧂",
-    "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖", "🥨", "🥞", "🧀", "🥩", "🍗", "🍖", "🦴", "🌭", "🍔", "🍟", "🍕", "🥪", "🥙", "🫓", "🌮", "🌯", "🥗", "🥘", "🫕", "🥣", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍥", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "☕", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🍽", "🥣", "🥡", "🥢", "🧂", "📦", "📁"
+    "🥛",
+    "🧈",
+    "🧀",
+    "🥚",
+    "🥩",
+    "🍗",
+    "🍖",
+    "🌭",
+    "🍔",
+    "🍟",
+    "🍕",
+    "🥪",
+    "🥙",
+    "🌮",
+    "🌯",
+    "🥗",
+    "🥘",
+    "🍝",
+    "🍜",
+    "🍲",
+    "🍛",
+    "🍣",
+    "🍱",
+    "🥟",
+    "🍤",
+    "🍙",
+    "🍚",
+    "🍘",
+    "🍥",
+    "🍢",
+    "🍡",
+    "🍧",
+    "🍨",
+    "🍦",
+    "🥧",
+    "🍰",
+    "🎂",
+    "🍮",
+    "🍭",
+    "🍬",
+    "🍫",
+    "🍿",
+    "🍩",
+    "🍪",
+    "🌰",
+    "🥜",
+    "🍯",
+    "🥛",
+    "☕",
+    "🍵",
+    "🥤",
+    "🍶",
+    "🍺",
+    "🍻",
+    "🥂",
+    "🍷",
+    "🥃",
+    "🍸",
+    "🍹",
+    "🧉",
+    "🍾",
+    "🧊",
+    "🥄",
+    "🍴",
+    "🍽",
+    "🥣",
+    "🥡",
+    "🥢",
+    "🧂",
+    "🍏",
+    "🍎",
+    "🍐",
+    "🍊",
+    "🍋",
+    "🍌",
+    "🍉",
+    "🍇",
+    "🍓",
+    "🫐",
+    "🍈",
+    "🍒",
+    "🍑",
+    "🥭",
+    "🍍",
+    "🥥",
+    "🥝",
+    "🍅",
+    "🍆",
+    "🥑",
+    "🥦",
+    "🥬",
+    "🥒",
+    "🌶",
+    "🫑",
+    "🌽",
+    "🥕",
+    "🫒",
+    "🧄",
+    "🧅",
+    "🥔",
+    "🍠",
+    "🥐",
+    "🥯",
+    "🍞",
+    "🥖",
+    "🥨",
+    "🥞",
+    "🧀",
+    "🥩",
+    "🍗",
+    "🍖",
+    "🦴",
+    "🌭",
+    "🍔",
+    "🍟",
+    "🍕",
+    "🥪",
+    "🥙",
+    "🫓",
+    "🌮",
+    "🌯",
+    "🥗",
+    "🥘",
+    "🫕",
+    "🥣",
+    "🍝",
+    "🍜",
+    "🍲",
+    "🍛",
+    "🍣",
+    "🍱",
+    "🥟",
+    "🦪",
+    "🍤",
+    "🍙",
+    "🍚",
+    "🍘",
+    "🍥",
+    "🍢",
+    "🍡",
+    "🍧",
+    "🍨",
+    "🍦",
+    "🥧",
+    "🧁",
+    "🍰",
+    "🎂",
+    "🍮",
+    "🍭",
+    "🍬",
+    "🍫",
+    "🍿",
+    "🍩",
+    "🍪",
+    "🌰",
+    "🥜",
+    "🍯",
+    "🥛",
+    "☕",
+    "🍵",
+    "🧃",
+    "🥤",
+    "🧋",
+    "🍶",
+    "🍺",
+    "🍻",
+    "🥂",
+    "🍷",
+    "🥃",
+    "🍸",
+    "🍹",
+    "🧉",
+    "🍾",
+    "🧊",
+    "🥄",
+    "🍴",
+    "🍽",
+    "🥣",
+    "🥡",
+    "🥢",
+    "🧂",
+    "📦",
+    "📁"
 ).distinct()
 
 @Composable
@@ -824,7 +1104,7 @@ fun IconPicker(
                                     .size(48.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Color(0xFFF8FAFC))
-                                    .clickable { 
+                                    .clickable {
                                         onIconSelected(icon)
                                         onDismiss()
                                     },
@@ -862,7 +1142,7 @@ fun AddProductDialog(
     var manufactureDate by remember { mutableStateOf("") }
     var expiryDate by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(categories.firstOrNull() ?: "") }
-    
+
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var showIconPicker by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
@@ -872,7 +1152,10 @@ fun AddProductDialog(
         title = { Text(stringResource(R.string.add_product)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
@@ -884,15 +1167,15 @@ fun AddProductDialog(
                     }
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { 
-                            name = it 
+                        onValueChange = {
+                            name = it
                             icon = suggestIcon(it)
                         },
                         label = { Text(stringResource(R.string.product_name)) },
                         modifier = Modifier.weight(1f)
                     )
                 }
-                
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = quantityValue,
@@ -901,11 +1184,18 @@ fun AddProductDialog(
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
-                    
-                    val units = listOf(stringResource(R.string.unit_pcs), stringResource(R.string.unit_kg), stringResource(R.string.unit_l))
-                    
+
+                    val units = listOf(
+                        stringResource(R.string.unit_pcs),
+                        stringResource(R.string.unit_kg),
+                        stringResource(R.string.unit_l)
+                    )
+
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.product_unit), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.product_unit),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             units.forEach { unit ->
                                 FilterChip(
@@ -939,14 +1229,19 @@ fun AddProductDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(stringResource(R.string.product_category), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.product_category),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         TextButton(onClick = { showAddCategoryDialog = true }) {
                             Text("+ ${stringResource(R.string.add_category)}", fontSize = 12.sp)
                         }
                     }
-                    
+
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         categories.forEach { cat ->
@@ -961,10 +1256,20 @@ fun AddProductDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { 
-                val quantityStr = if (quantityValue.isNotEmpty()) "$quantityValue $selectedUnit" else ""
+            Button(onClick = {
+                val quantityStr =
+                    if (quantityValue.isNotEmpty()) "$quantityValue $selectedUnit" else ""
                 val calculatedExpiry = calculateDaysRemaining(expiryDate)
-                onConfirm(name, icon, quantityStr, "Холодильник", calculatedExpiry, selectedCategory, manufactureDate, expiryDate)
+                onConfirm(
+                    name,
+                    icon,
+                    quantityStr,
+                    "Холодильник",
+                    calculatedExpiry,
+                    selectedCategory,
+                    manufactureDate,
+                    expiryDate
+                )
             }) {
                 Text(stringResource(R.string.save))
             }
@@ -1024,7 +1329,9 @@ fun RecipesTab() {
         "Куриный суп" to "🥣"
     )
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp)) {
         Text(
             text = stringResource(R.string.recipes_title),
             fontSize = 24.sp,
@@ -1044,7 +1351,9 @@ fun RecipesTab() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
-                            modifier = Modifier.size(48.dp).background(Color(0xFFF8FAFC), CircleShape),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color(0xFFF8FAFC), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(icon, fontSize = 24.sp)
@@ -1086,20 +1395,30 @@ fun SettingsTab() {
         R.string.settings_help to Icons.Default.Info
     )
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(64.dp).background(Color(0xFF1976D2), CircleShape),
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(Color(0xFF1976D2), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Г", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
-                Text(stringResource(R.string.user_name), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(
+                    stringResource(R.string.user_name),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
                 Text(stringResource(R.string.user_email), color = Color.Gray, fontSize = 14.sp)
             }
         }
@@ -1121,10 +1440,17 @@ fun SettingsTab() {
                         Icon(icon, contentDescription = null, tint = Color(0xFF1976D2))
                         Spacer(modifier = Modifier.width(16.dp))
                         Text(stringResource(resId), modifier = Modifier.weight(1f))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.Gray)
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = Color.Gray
+                        )
                     }
                     if (index < settingsItems.size - 1) {
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF8FAFC))
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = Color(0xFFF8FAFC)
+                        )
                     }
                 }
             }
@@ -1157,7 +1483,7 @@ fun ProductsBottomNavigation(selectedIndex: Int, onIndexSelected: (Int) -> Unit)
             Triple(stringResource(R.string.nav_recipes), Icons.Default.Menu, false),
             Triple(stringResource(R.string.nav_settings), Icons.Default.Settings, false)
         )
-        
+
         items.forEachIndexed { index, (label, icon, hasBadge) ->
             NavigationBarItem(
                 selected = index == selectedIndex,
@@ -1201,7 +1527,10 @@ fun EditProductDialog(
     var name by remember { mutableStateOf(product.name) }
     var icon by remember { mutableStateOf(product.icon) }
     val initialQuantityParts = product.quantity.split(" ")
-    var quantityValue by remember { mutableStateOf(initialQuantityParts.getOrNull(0)?.ifEmpty { "1" } ?: "1") }
+    var quantityValue by remember {
+        mutableStateOf(
+            initialQuantityParts.getOrNull(0)?.ifEmpty { "1" } ?: "1")
+    }
     var selectedUnit by remember { mutableStateOf(initialQuantityParts.getOrNull(1) ?: "кг") }
     var manufactureDate by remember { mutableStateOf(product.manufactureDate) }
     var expiryDate by remember { mutableStateOf(product.expiryDate) }
@@ -1216,7 +1545,10 @@ fun EditProductDialog(
         title = { Text(stringResource(R.string.edit_product)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
@@ -1228,15 +1560,15 @@ fun EditProductDialog(
                     }
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { 
-                            name = it 
+                        onValueChange = {
+                            name = it
                             icon = suggestIcon(it)
                         },
                         label = { Text(stringResource(R.string.product_name)) },
                         modifier = Modifier.weight(1f)
                     )
                 }
-                
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = quantityValue,
@@ -1245,11 +1577,18 @@ fun EditProductDialog(
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
-                    
-                    val units = listOf(stringResource(R.string.unit_pcs), stringResource(R.string.unit_kg), stringResource(R.string.unit_l))
-                    
+
+                    val units = listOf(
+                        stringResource(R.string.unit_pcs),
+                        stringResource(R.string.unit_kg),
+                        stringResource(R.string.unit_l)
+                    )
+
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.product_unit), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.product_unit),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             units.forEach { unit ->
                                 FilterChip(
@@ -1283,14 +1622,19 @@ fun EditProductDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(stringResource(R.string.product_category), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.product_category),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         TextButton(onClick = { showAddCategoryDialog = true }) {
                             Text("+ ${stringResource(R.string.add_category)}", fontSize = 12.sp)
                         }
                     }
-                    
+
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         categories.forEach { cat ->
@@ -1305,8 +1649,9 @@ fun EditProductDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { 
-                val quantityStr = if (quantityValue.isNotEmpty()) "$quantityValue $selectedUnit" else ""
+            Button(onClick = {
+                val quantityStr =
+                    if (quantityValue.isNotEmpty()) "$quantityValue $selectedUnit" else ""
                 val calculatedExpiry = calculateDaysRemaining(expiryDate)
                 val updatedProduct = product.copy(
                     name = name,
@@ -1317,7 +1662,7 @@ fun EditProductDialog(
                     manufactureDate = manufactureDate,
                     expiryDate = expiryDate
                 )
-                onConfirm(updatedProduct, selectedCategory) 
+                onConfirm(updatedProduct, selectedCategory)
             }) {
                 Text(stringResource(R.string.save))
             }
@@ -1370,6 +1715,7 @@ fun EditProductDialog(
 
 @Composable
 fun ScannerTab(
+    onStartScanner: () -> Unit,
     barcodeMappings: Map<String, String>,
     onProductIdentified: (String, String) -> Unit,
     onNewBarcodeScanned: (String) -> Unit,
@@ -1377,6 +1723,7 @@ fun ScannerTab(
     onAddProduct: (Product, String, String?) -> Unit,
     onAddCategory: (String) -> Unit
 ) {
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -1389,21 +1736,37 @@ fun ScannerTab(
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            hasCameraPermission = granted
-        }
+        onResult = { granted -> hasCameraPermission = granted }
     )
 
     var isScanning by remember { mutableStateOf(false) }
     var scannedBarcode by remember { mutableStateOf<String?>(null) }
     var showAddDialogForBarcode by remember { mutableStateOf<String?>(null) }
 
+    // ── Диалог ошибки (не закрывается сам) ──────────────────────────────────
+    errorMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Ошибка сканера", color = Color.Red) },
+            text = { Text(msg) },
+            confirmButton = {
+                Button(onClick = {
+                    errorMessage = null
+                    isScanning = true
+                }) { Text("Повторить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { errorMessage = null }) { Text("Закрыть") }
+            }
+        )
+    }
+
     if (showAddDialogForBarcode != null) {
         val prefilledName = barcodeMappings[showAddDialogForBarcode] ?: ""
         AddProductDialog(
-            onDismiss = { 
+            onDismiss = {
                 showAddDialogForBarcode = null
-                isScanning = true // Resume scanning
+                isScanning = true
             },
             onConfirm = { name, icon, quantity, location, expiry, categoryName, mDate, eDate ->
                 val newProduct = Product(
@@ -1418,7 +1781,7 @@ fun ScannerTab(
                 )
                 onAddProduct(newProduct, categoryName, showAddDialogForBarcode)
                 showAddDialogForBarcode = null
-                isScanning = true // Resume scanning
+                isScanning = true
             },
             categories = categories.map { it.name },
             onAddCategory = onAddCategory,
@@ -1439,7 +1802,7 @@ fun ScannerTab(
             }
         }
     } else {
-        if (!isScanning && showAddDialogForBarcode == null) {
+        if (!isScanning && showAddDialogForBarcode == null && errorMessage == null) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
@@ -1467,28 +1830,24 @@ fun ScannerTab(
                 )
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
-                    onClick = { isScanning = true },
+                    onClick = { onStartScanner() },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
                 ) {
-                    Text("Запустить камеру")
+                    Text("Просканировать чек")
                 }
             }
         } else if (isScanning) {
             BarcodeCameraPreview(
                 onBarcodeScanned = { barcode ->
                     isScanning = false
-                    if (barcodeMappings.containsKey(barcode)) {
-                        // Already known, but we still show add dialog pre-filled?
-                        // Or just show result? 
-                        // User said: "System automatically determines what product it is"
-                        // Maybe show a confirmation to add THIS product again?
-                        showAddDialogForBarcode = barcode
-                    } else {
-                        showAddDialogForBarcode = barcode
-                    }
+                    showAddDialogForBarcode = barcode
                 },
-                onClose = { isScanning = false }
+                onClose = { isScanning = false },
+                onError = { error ->       // ← вот сюда приходят ошибки
+                    isScanning = false
+                    errorMessage = error
+                }
             )
         }
     }
@@ -1497,12 +1856,13 @@ fun ScannerTab(
 @Composable
 fun BarcodeCameraPreview(
     onBarcodeScanned: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onError: (String) -> Unit  // ← добавили параметр
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-    
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { context ->
@@ -1523,7 +1883,10 @@ fun BarcodeCameraPreview(
                         @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
                         val mediaImage = imageProxy.image
                         if (mediaImage != null) {
-                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                            val image = InputImage.fromMediaImage(
+                                mediaImage,
+                                imageProxy.imageInfo.rotationDegrees
+                            )
                             scanner.process(image)
                                 .addOnSuccessListener { barcodes ->
                                     for (barcode in barcodes) {
@@ -1533,6 +1896,11 @@ fun BarcodeCameraPreview(
                                             break
                                         }
                                     }
+                                }
+                                .addOnFailureListener { e ->
+                                    // ← пункт 4: ошибка распознавания
+                                    onError("Ошибка распознавания: ${e.localizedMessage}")
+                                    imageProxy.close()
                                 }
                                 .addOnCompleteListener {
                                     imageProxy.close()
@@ -1554,22 +1922,24 @@ fun BarcodeCameraPreview(
                         )
                     } catch (e: Exception) {
                         Log.e("CameraPreview", "Binding failed", e)
+                        // ← пункт 4: ошибка запуска камеры
+                        onError("Не удалось запустить камеру: ${e.localizedMessage}")
                     }
                 }, executor)
                 previewView
             },
             modifier = Modifier.fillMaxSize()
         )
-        
-        // UI Overlay for scanner
+
         IconButton(
             onClick = onClose,
-            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
+            modifier = Modifier
+                .padding(16.dp)
+                .align(Alignment.TopStart)
         ) {
             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
         }
-        
-        // Scanning frame
+
         Box(
             modifier = Modifier
                 .size(250.dp)
@@ -1583,6 +1953,8 @@ fun BarcodeCameraPreview(
 @Composable
 fun ProductsScreenPreview() {
     MaterialTheme {
-        ProductsScreen()
+        ProductsScreen(
+            onStartScanner = {}
+        )
     }
 }
