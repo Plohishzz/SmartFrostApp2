@@ -65,4 +65,8 @@
     <string name="nav_add_barcode">Добавить</string>
     <string name="nav_remove_barcode">Удалить</string>
     <string name="nav_search">Поиск</string>
+    <string name="scan_mode_product">Продукт</string>
+    <string name="scan_mode_receipt">Чек</string>
+    <string name="scan_canceled">Сканирование отменено</string>
+    <string name="scan_success">Данные чека отправлены</string>
 </resources>

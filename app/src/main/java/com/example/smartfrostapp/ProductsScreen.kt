@@ -40,8 +40,13 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import java.util.concurrent.Executors
@@ -66,9 +71,55 @@ data class ProductCategory(
     val icon: String
 )
 
+data class ProductTemplate(
+    val name: String,
+    val icon: String,
+    val defaultShelfLifeDays: Int,
+    val category: String
+)
+
+val PRODUCT_TEMPLATES = listOf(
+    ProductTemplate("Молоко", "🥛", 7, "Молочное"),
+    ProductTemplate("Молоко 3.2%", "🥛", 7, "Молочное"),
+    ProductTemplate("Молоко 2.5%", "🥛", 7, "Молочное"),
+    ProductTemplate("Сливки", "🥛", 5, "Молочное"),
+    ProductTemplate("Сметана", "🥛", 10, "Молочное"),
+    ProductTemplate("Масло сливочное", "🧈", 20, "Молочное"),
+    ProductTemplate("Сыр Гауда", "🧀", 14, "Молочное"),
+    ProductTemplate("Сыр Пармезан", "🧀", 30, "Молочное"),
+    ProductTemplate("Творог", "🍦", 5, "Молочное"),
+    ProductTemplate("Йогурт", "🍦", 14, "Молочное"),
+    ProductTemplate("Кефир", "🥛", 10, "Молочное"),
+    ProductTemplate("Яйца", "🥚", 25, "Прочее"),
+    ProductTemplate("Куриная грудка", "🍗", 5, "Мясо"),
+    ProductTemplate("Говядина", "🥩", 4, "Мясо"),
+    ProductTemplate("Свинина", "🥩", 4, "Мясо"),
+    ProductTemplate("Фарш говяжий", "🥩", 2, "Мясо"),
+    ProductTemplate("Сосиски", "🌭", 10, "Мясо"),
+    ProductTemplate("Колбаса", "🌭", 14, "Мясо"),
+    ProductTemplate("Яблоко", "🍎", 30, "Прочее"),
+    ProductTemplate("Банан", "🍌", 7, "Прочее"),
+    ProductTemplate("Апельсин", "🍊", 20, "Прочее"),
+    ProductTemplate("Помидор", "🍅", 10, "Прочее"),
+    ProductTemplate("Огурец", "🥒", 7, "Прочее"),
+    ProductTemplate("Хлеб", "🍞", 3, "Прочее"),
+    ProductTemplate("Рыба", "🐟", 3, "Прочее"),
+    ProductTemplate("Картофель", "🥔", 60, "Прочее"),
+    ProductTemplate("Морковь", "🥕", 30, "Прочее")
+)
+
 @Composable
-fun ProductsScreen(modifier: Modifier = Modifier) {
+fun ProductsScreen(
+    modifier: Modifier = Modifier,
+    notificationsEnabled: Boolean = true,
+    onNotificationsEnabledChange: (Boolean) -> Unit = {},
+    notificationDaysBefore: Float = 3f,
+    onNotificationDaysBeforeChange: (Float) -> Unit = {},
+    selectedTheme: String = "System",
+    onThemeSelected: (String) -> Unit = {}
+) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
     val sharedPrefs = remember { context.getSharedPreferences("barcode_prefs", android.content.Context.MODE_PRIVATE) }
     
     var searchQuery by remember { mutableStateOf("") }
@@ -80,8 +131,12 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
     
     // Load initial mappings
     var barcodeMappings by remember { 
-        mutableStateOf(
-            sharedPrefs.all.mapValues { it.value.toString() }
+        mutableStateOf<Map<String, String>>(
+            if (isPreview) emptyMap()
+            else {
+                val all = sharedPrefs.all
+                all?.mapValues { it.value.toString() } ?: emptyMap()
+            }
         ) 
     }
 
@@ -92,9 +147,9 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 3,
                 icon = "🥛",
                 products = listOf(
-                    Product("1", "Молоко", "1 л", "Холодильник", 0, "🥛", manufactureDate = "10.05.25", expiryDate = "10.05.25"),
-                    Product("2", "Масло сливочное", "200 г", "Холодильник", 7, "🧈", manufactureDate = "01.05.25", expiryDate = "17.05.25"),
-                    Product("3", "Сыр Гауда", "300 г", "Холодильник", 2, "🧀", manufactureDate = "05.05.25", expiryDate = "12.05.25")
+                    Product("1", "Молоко", "1 л", "Холодильник", calculateDaysRemaining("10.05.25"), "🥛", manufactureDate = "10.05.25", expiryDate = "10.05.25"),
+                    Product("2", "Масло сливочное", "200 г", "Холодильник", calculateDaysRemaining("17.05.25"), "🧈", manufactureDate = "01.05.25", expiryDate = "17.05.25"),
+                    Product("3", "Сыр Гауда", "300 г", "Холодильник", calculateDaysRemaining("12.05.25"), "🧀", manufactureDate = "05.05.25", expiryDate = "12.05.25")
                 )
             ),
             ProductCategory(
@@ -102,7 +157,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 1,
                 icon = "📦",
                 products = listOf(
-                    Product("4", "Яйца", "2 шт", "Холодильник", 10, "🥚", manufactureDate = "10.05.25", expiryDate = "20.05.25")
+                    Product("4", "Яйца", "2 шт", "Холодильник", calculateDaysRemaining("20.05.25"), "🥚", manufactureDate = "10.05.25", expiryDate = "20.05.25")
                 )
             ),
             ProductCategory(
@@ -110,8 +165,8 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 count = 2,
                 icon = "🥩",
                 products = listOf(
-                    Product("5", "Говядина", "1 кг", "Морозильник", 28, "🥩", manufactureDate = "01.05.25", expiryDate = "29.05.25"),
-                    Product("6", "Куриная грудка", "500 г", "Холодильник", 0, "🍗", manufactureDate = "10.05.25", expiryDate = "10.05.25")
+                    Product("5", "Говядина", "1 кг", "Морозильник", calculateDaysRemaining("29.05.25"), "🥩", manufactureDate = "01.05.25", expiryDate = "29.05.25"),
+                    Product("6", "Куриная грудка", "500 г", "Холодильник", calculateDaysRemaining("10.05.25"), "🍗", manufactureDate = "10.05.25", expiryDate = "10.05.25")
                 )
             )
         )
@@ -160,7 +215,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                 }
             }
         },
-        containerColor = Color(0xFFF8FAFC)
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             when (selectedNavIndex) {
@@ -198,9 +253,9 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                                             .padding(16.dp)
                                             .fillMaxWidth(),
                                         shape = RoundedCornerShape(24.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF0F2F5))
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                                     ) {
                                         Column {
                                             allProducts.forEachIndexed { index, product ->
@@ -219,7 +274,7 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                                                     onEdit = { editingProduct = product }
                                                 )
                                                 if (index < (allProducts.size - 1)) {
-                                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF0F2F5))
+                                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
                                                 }
                                             }
                                         }
@@ -247,7 +302,14 @@ fun ProductsScreen(modifier: Modifier = Modifier) {
                     }
                 }
                 3 -> RecipesTab()
-                4 -> SettingsTab()
+                4 -> SettingsTab(
+                    notificationsEnabled = notificationsEnabled,
+                    onNotificationsEnabledChange = onNotificationsEnabledChange,
+                    notificationDaysBefore = notificationDaysBefore,
+                    onNotificationDaysBeforeChange = onNotificationDaysBeforeChange,
+                    selectedTheme = selectedTheme,
+                    onThemeSelected = onThemeSelected
+                )
                 2 -> ScannerTab(
                     barcodeMappings = barcodeMappings,
                     onProductIdentified = { name, barcode ->
@@ -380,7 +442,7 @@ fun ProductsTopBar() {
             text = stringResource(R.string.products_title),
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF1A1C1E)
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }
@@ -409,10 +471,10 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
             },
             shape = RoundedCornerShape(24.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color.White,
-                focusedContainerColor = Color.White,
-                unfocusedBorderColor = Color(0xFFE0E2E5),
-                focusedBorderColor = Color(0xFF1976D2)
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedBorderColor = MaterialTheme.colorScheme.primary
             ),
             singleLine = true
         )
@@ -435,8 +497,8 @@ fun SortingChips(selectedSort: String, onSortSelected: (String) -> Unit) {
             Surface(
                 onClick = { onSortSelected(id) },
                 shape = RoundedCornerShape(20.dp),
-                color = if (isSelected) Color(0xFF1976D2) else Color.White,
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E2E5))
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -445,13 +507,13 @@ fun SortingChips(selectedSort: String, onSortSelected: (String) -> Unit) {
                     Icon(
                         imageVector = if (id == "NAME") Icons.Default.Menu else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = if (isSelected) Color.White else Color.Gray,
+                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = label,
-                        color = if (isSelected) Color.White else Color(0xFF1A1C1E),
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -476,13 +538,13 @@ fun CategoryFilterChips(
             Surface(
                 onClick = { onCategorySelected(category) },
                 shape = RoundedCornerShape(20.dp),
-                color = if (isSelected) Color(0xFF1A1C1E) else Color.White,
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E2E5))
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Text(
                     text = category,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = if (isSelected) Color.White else Color(0xFF1A1C1E),
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -516,19 +578,19 @@ fun CategorySection(
                     text = category.name,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1A1C1E)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = category.count.toString(),
                     fontSize = 16.sp,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                 contentDescription = null,
-                tint = Color.Gray,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -539,9 +601,9 @@ fun CategorySection(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF0F2F5))
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Column {
                     category.products.forEachIndexed { index, product ->
@@ -552,7 +614,7 @@ fun CategorySection(
                             onEdit = { onEditProduct(product) }
                         )
                         if (index < (category.products.size - 1)) {
-                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF0F2F5))
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
@@ -578,7 +640,7 @@ fun ProductItem(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .background(Color(0xFFF8FAFC), CircleShape),
+                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(product.icon, fontSize = 20.sp)
@@ -596,7 +658,7 @@ fun ProductItem(
                     text = product.name,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1A1C1E)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 
                 val expiryText = if (product.expiryDays == 0) {
@@ -608,7 +670,7 @@ fun ProductItem(
                 }
                 
                 val expiryColor = if (product.expiryDays <= 2) Color(0xFFF44336) else Color(0xFF4CAF50)
-                val expiryBg = if (product.expiryDays <= 2) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
+                val expiryBg = if (product.expiryDays <= 2) Color(0xFFFFEBEE).copy(alpha = 0.2f) else Color(0xFFE8F5E9).copy(alpha = 0.2f)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
@@ -632,12 +694,12 @@ fun ProductItem(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
                         "-",
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
                             .clickable {
@@ -654,11 +716,12 @@ fun ProductItem(
                         text = product.quantity,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
                     Text(
                         "+",
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
                             .clickable {
@@ -679,7 +742,7 @@ fun ProductItem(
             Icon(
                 painter = painterResource(id = R.drawable.ic_delete),
                 contentDescription = null,
-                tint = Color(0xFFBDBDBD),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .size(18.dp)
                     .clickable { onDelete() }
@@ -724,15 +787,25 @@ fun calculateDaysRemaining(expiryDateStr: String): Int {
     return try {
         val format = java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault())
         val expiryDate = format.parse(expiryDateStr) ?: return 0
-        val calendar = java.util.Calendar.getInstance()
+        
+        // Use calendar to clear time for both dates to compare just days
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val today = calendar.timeInMillis
+        
+        calendar.time = expiryDate
         calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
         calendar.set(java.util.Calendar.MINUTE, 0)
         calendar.set(java.util.Calendar.SECOND, 0)
         calendar.set(java.util.Calendar.MILLISECOND, 0)
-        val today = calendar.time
+        val expiry = calendar.timeInMillis
         
-        val diff = expiryDate.time - today.time
-        (diff / (1000 * 60 * 60 * 24)).toInt()
+        val diff = expiry - today
+        java.util.concurrent.TimeUnit.MILLISECONDS.toDays(diff).toInt()
     } catch (e: Exception) {
         0
     }
@@ -819,19 +892,19 @@ fun IconPicker(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowIcons.forEach { icon ->
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFFF8FAFC))
-                                    .clickable { 
-                                        onIconSelected(icon)
-                                        onDismiss()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(icon, fontSize = 24.sp)
-                            }
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { 
+                                onIconSelected(icon)
+                                onDismiss()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(icon, fontSize = 24.sp)
+                    }
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -866,17 +939,29 @@ fun AddProductDialog(
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var showIconPicker by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
+    
+    val focusRequester = remember { FocusRequester() }
+    
+    val suggestions = remember(name) {
+        if (name.length >= 2) {
+            PRODUCT_TEMPLATES.filter { it.name.contains(name, ignoreCase = true) }
+        } else emptyList()
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.add_product)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
-                            .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                             .clickable { showIconPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
@@ -889,8 +974,53 @@ fun AddProductDialog(
                             icon = suggestIcon(it)
                         },
                         label = { Text(stringResource(R.string.product_name)) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester)
                     )
+                }
+
+                if (suggestions.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column {
+                            suggestions.take(5).forEach { template ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            name = template.name
+                                            icon = template.icon
+                                            if (template.category in categories) {
+                                                selectedCategory = template.category
+                                            }
+                                            // Auto calculate expiry date
+                                            val cal = java.util.Calendar.getInstance()
+                                            val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.getDefault())
+                                            manufactureDate = dateFormat.format(cal.time)
+                                            cal.add(java.util.Calendar.DAY_OF_YEAR, template.defaultShelfLifeDays)
+                                            expiryDate = dateFormat.format(cal.time)
+                                        }
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(template.icon, fontSize = 20.sp)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(template.name, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "Рекомендуемый срок: +${template.defaultShelfLifeDays} дн.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1037,30 +1167,30 @@ fun RecipesTab() {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
-                            modifier = Modifier.size(48.dp).background(Color(0xFFF8FAFC), CircleShape),
+                            modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(icon, fontSize = 24.sp)
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 text = stringResource(R.string.recipe_ingredients, (3..6).random()),
-                                color = Color.Gray,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
                             )
                         }
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFE8F5E9)
+                            color = Color(0xFFE8F5E9).copy(alpha = 0.2f)
                         ) {
                             Text(
                                 text = stringResource(R.string.recipe_ready),
@@ -1078,12 +1208,22 @@ fun RecipesTab() {
 }
 
 @Composable
-fun SettingsTab() {
+fun SettingsTab(
+    notificationsEnabled: Boolean,
+    onNotificationsEnabledChange: (Boolean) -> Unit,
+    notificationDaysBefore: Float,
+    onNotificationDaysBeforeChange: (Float) -> Unit,
+    selectedTheme: String,
+    onThemeSelected: (String) -> Unit
+) {
+    var showNotificationDetails by remember { mutableStateOf(false) }
+    var showAppearanceDetails by remember { mutableStateOf(false) }
+
     val settingsItems = listOf(
-        R.string.settings_profile to Icons.Default.Person,
-        R.string.settings_notifications to Icons.Default.Notifications,
-        R.string.settings_appearance to Icons.Default.Build,
-        R.string.settings_help to Icons.Default.Info
+        Triple(R.string.settings_profile, Icons.Default.Person, {}),
+        Triple(R.string.settings_notifications, Icons.Default.Notifications, { showNotificationDetails = !showNotificationDetails }),
+        Triple(R.string.settings_appearance, Icons.Default.Build, { showAppearanceDetails = !showAppearanceDetails }),
+        Triple(R.string.settings_help, Icons.Default.Info, {})
     )
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -1107,24 +1247,80 @@ fun SettingsTab() {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column {
-                settingsItems.forEachIndexed { index, (resId, icon) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(icon, contentDescription = null, tint = Color(0xFF1976D2))
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(stringResource(resId), modifier = Modifier.weight(1f))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.Gray)
+                settingsItems.forEachIndexed { index, (resId, icon, onClick) ->
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onClick() }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(icon, contentDescription = null, tint = Color(0xFF1976D2))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                stringResource(resId), 
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            
+                            if (resId == R.string.settings_notifications) {
+                                Switch(
+                                    checked = notificationsEnabled,
+                                    onCheckedChange = onNotificationsEnabledChange,
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF1976D2))
+                                )
+                            } else {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.Gray)
+                            }
+                        }
+
+                        if (resId == R.string.settings_notifications && showNotificationDetails && notificationsEnabled) {
+                            Column(modifier = Modifier.padding(start = 56.dp, end = 16.dp, bottom = 16.dp)) {
+                                Text(
+                                    text = "Уведомлять за ${notificationDaysBefore.toInt()} дн. до истечения",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray
+                                )
+                                Slider(
+                                    value = notificationDaysBefore,
+                                    onValueChange = onNotificationDaysBeforeChange,
+                                    valueRange = 1f..7f,
+                                    steps = 5,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF1976D2),
+                                        activeTrackColor = Color(0xFF1976D2)
+                                    )
+                                )
+                            }
+                        }
+
+                        if (resId == R.string.settings_appearance && showAppearanceDetails) {
+                            Column(modifier = Modifier.padding(start = 56.dp, end = 16.dp, bottom = 16.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_appearance),
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val themes = listOf("System", "Light", "Dark")
+                                    themes.forEach { theme ->
+                                        FilterChip(
+                                            selected = selectedTheme == theme,
+                                            onClick = { onThemeSelected(theme) },
+                                            label = { Text(theme) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     if (index < settingsItems.size - 1) {
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF8FAFC))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
@@ -1147,7 +1343,7 @@ fun SettingsTab() {
 @Composable
 fun ProductsBottomNavigation(selectedIndex: Int, onIndexSelected: (Int) -> Unit) {
     NavigationBar(
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp
     ) {
         val items = listOf(
@@ -1177,10 +1373,10 @@ fun ProductsBottomNavigation(selectedIndex: Int, onIndexSelected: (Int) -> Unit)
                 },
                 label = { Text(label, fontSize = 10.sp) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF1976D2),
-                    selectedTextColor = Color(0xFF1976D2),
-                    unselectedIconColor = Color.Gray,
-                    unselectedTextColor = Color.Gray,
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     indicatorColor = Color.Transparent
                 )
             )
@@ -1220,7 +1416,7 @@ fun EditProductDialog(
                     Box(
                         modifier = Modifier
                             .size(56.dp)
-                            .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                             .clickable { showIconPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1397,11 +1593,12 @@ fun ScannerTab(
     var isScanning by remember { mutableStateOf(false) }
     var scannedBarcode by remember { mutableStateOf<String?>(null) }
     var showAddDialogForBarcode by remember { mutableStateOf<String?>(null) }
+    var scanMode by remember { mutableStateOf("PRODUCT") } // PRODUCT or RECEIPT
 
     if (showAddDialogForBarcode != null) {
         val prefilledName = barcodeMappings[showAddDialogForBarcode] ?: ""
         AddProductDialog(
-            onDismiss = { 
+            onDismiss = {
                 showAddDialogForBarcode = null
                 isScanning = true // Resume scanning
             },
@@ -1480,7 +1677,7 @@ fun ScannerTab(
                     isScanning = false
                     if (barcodeMappings.containsKey(barcode)) {
                         // Already known, but we still show add dialog pre-filled?
-                        // Or just show result? 
+                        // Or just show result?
                         // User said: "System automatically determines what product it is"
                         // Maybe show a confirmation to add THIS product again?
                         showAddDialogForBarcode = barcode
@@ -1579,10 +1776,45 @@ fun BarcodeCameraPreview(
     }
 }
 
+@Composable
+fun SmartFrostTheme(
+    theme: String = "System",
+    content: @Composable () -> Unit
+) {
+    val darkTheme = when (theme) {
+        "Light" -> false
+        "Dark" -> true
+        else -> isSystemInDarkTheme()
+    }
+
+    val colorScheme = if (darkTheme) {
+        darkColorScheme(
+            primary = Color(0xFF90CAF9),
+            onPrimary = Color(0xFF0D47A1),
+            surface = Color(0xFF121212),
+            onSurface = Color.White,
+            outlineVariant = Color(0xFF333333)
+        )
+    } else {
+        lightColorScheme(
+            primary = Color(0xFF1976D2),
+            onPrimary = Color.White,
+            surface = Color.White,
+            onSurface = Color(0xFF1A1C1E),
+            outlineVariant = Color(0xFFF0F2F5)
+        )
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        content = content
+    )
+}
+
 @Preview(showBackground = true)
 @Composable
 fun ProductsScreenPreview() {
-    MaterialTheme {
+    SmartFrostTheme {
         ProductsScreen()
     }
 }
