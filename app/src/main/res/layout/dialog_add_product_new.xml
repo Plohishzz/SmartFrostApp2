@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface"
+    android:fitsSystemWindows="true">
+
+    <!-- Top Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16.dp"
+        android:paddingVertical="12.dp">
+
+        <View
+            android:layout_width="0.dp"
+            android:layout_height="0.dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/btn_close"
+            android:layout_width="40.dp"
+            android:layout_height="40.dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:padding="8.dp"
+            app:tint="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+
+    <!-- Name Input -->
+    <com.google.android.material.textfield.TextInputLayout
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24.dp"
+        android:layout_marginTop="16.dp"
+        android:layout_marginBottom="24.dp"
+        app:boxBackgroundMode="none"
+        app:hintEnabled="false">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/edit_product_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Продукт"
+            android:textSize="28sp"
+            android:textAlignment="center"
+            android:inputType="textCapSentences"
+            android:background="@null" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/colorOutlineVariant" />
+
+    <!-- Suggestions List -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/suggestions_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="0.dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingHorizontal="16.dp"
+        android:paddingBottom="16.dp" />
+
+    <!-- Product Details Section (shown when product selected) -->
+    <ScrollView
+        android:id="@+id/product_details_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16.dp">
+
+            <!-- Icon and Quantity -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16.dp">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/icon_picker_button"
+                    android:layout_width="56.dp"
+                    android:layout_height="56.dp"
+                    app:cardCornerRadius="16.dp"
+                    app:cardElevation="0.dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <TextView
+                        android:id="@+id/selected_icon"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="📦"
+                        android:textSize="28sp" />
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_open_quantity_selector"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0.dp"
+                    android:layout_height="56.dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="16.dp"
+                    android:text="1 кг"
+                    android:textAlignment="viewStart" />
+            </LinearLayout>
+
+            <!-- Hidden fields -->
+            <EditText
+                android:id="@+id/edit_product_quantity"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone"
+                android:text="1" />
+
+            <AutoCompleteTextView
+                android:id="@+id/unit_dropdown"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone"
+                android:text="кг" />
+
+            <!-- Category -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Category"
+                android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                android:textColor="?attr/colorPrimary"
+                android:layout_marginBottom="8.dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_select_category"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="56.dp"
+                android:layout_marginBottom="16.dp"
+                android:text="Молочное"
+                android:textAlignment="viewStart" />
+
+            <!-- Dates -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Expiry info"
+                android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                android:textColor="?attr/colorPrimary"
+                android:layout_marginBottom="8.dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="0.dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8.dp">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/edit_manufacture_date"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Mfg date"
+                        android:focusable="false"
+                        android:clickable="true" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="0.dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/edit_expiry_date"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Expiry date"
+                        android:focusable="false"
+                        android:clickable="true" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- Save Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save_product"
+                android:layout_width="match_parent"
+                android:layout_height="56.dp"
+                android:layout_marginTop="24.dp"
+                android:text="Save"
+                android:textSize="16sp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

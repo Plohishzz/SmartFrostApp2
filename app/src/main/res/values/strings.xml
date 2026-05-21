@@ -38,6 +38,11 @@
     <string name="unit_l">л</string>
     <string name="product_category">Категория</string>
     <string name="add_category">Добавить категорию</string>
+    <string name="manage_categories">Управление категориями</string>
+    <string name="delete_category">Удалить категорию</string>
+    <string name="edit_category">Переименовать категорию</string>
+    <string name="category_exists">Категория уже существует</string>
+    <string name="category_cant_be_empty">Название не может быть пустым</string>
     <string name="new_category_name">Название категории</string>
     <string name="save">Сохранить</string>
     <string name="cancel">Отмена</string>
@@ -69,4 +74,12 @@
     <string name="scan_mode_receipt">Чек</string>
     <string name="scan_canceled">Сканирование отменено</string>
     <string name="scan_success">Данные чека отправлены</string>
+    <string name="expiry_info">Сроки годности</string>
+    <string name="select_amount">Выберите количество</string>
+    <string name="unit_gram">г</string>
+    <string name="unit_kilo">кг</string>
+    <string name="unit_liter">л</string>
+    <string name="unit_ml">мл</string>
+    <string name="select_category">Выберите категорию</string>
+    <string name="search_category">Поиск категории</string>
 </resources>

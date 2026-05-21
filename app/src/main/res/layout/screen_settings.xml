@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16.dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginVertical="24.dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:layout_width="64.dp"
+                android:layout_height="64.dp"
+                android:background="@color/design_default_color_primary"
+                android:scaleType="centerInside"
+                app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16.dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/user_name"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/user_email"
+                    android:textColor="?android:attr/textColorSecondary" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="16.dp"
+            app:cardElevation="0.dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="?attr/colorOutlineVariant">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Profile Item -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="16.dp">
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@drawable/ic_lock"
+                        app:tint="?attr/colorPrimary" />
+                    <TextView
+                        android:layout_width="0.dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16.dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile" />
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_media_play"
+                        app:tint="?android:attr/textColorSecondary" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="16.dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- Notifications Item -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16.dp">
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_popup_reminder"
+                        app:tint="?attr/colorPrimary" />
+                    <TextView
+                        android:layout_width="0.dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16.dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_notifications" />
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/notification_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="16.dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- Theme Item -->
+                <LinearLayout
+                    android:id="@+id/theme_selector"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="16.dp">
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_menu_day"
+                        app:tint="?attr/colorPrimary" />
+                    <TextView
+                        android:layout_width="0.dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16.dp"
+                        android:layout_weight="1"
+                        android:text="Тема" />
+                    <TextView
+                        android:id="@+id/current_theme_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8.dp"
+                        android:textColor="?android:attr/textColorSecondary" />
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_media_play"
+                        app:tint="?android:attr/textColorSecondary" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="16.dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="16.dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- History Item -->
+                <LinearLayout
+                    android:id="@+id/history_item"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="16.dp">
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_menu_recent_history"
+                        app:tint="?attr/colorPrimary" />
+                    <TextView
+                        android:layout_width="0.dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16.dp"
+                        android:layout_weight="1"
+                        android:text="История действий" />
+                    <ImageView
+                        android:layout_width="24.dp"
+                        android:layout_height="24.dp"
+                        android:src="@android:drawable/ic_media_play"
+                        app:tint="?android:attr/textColorSecondary" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="16.dp"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <!-- Logout Item -->
+                <com.google.android.material.button.MaterialButton
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_logout"
+                    android:textColor="?attr/colorError"
+                    app:icon="@android:drawable/ic_lock_power_off"
+                    app:iconTint="?attr/colorError" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</ScrollView>
