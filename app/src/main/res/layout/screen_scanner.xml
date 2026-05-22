@@ -1,20 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- 1. КАМЕРА (Должна быть на самом заднем плане) -->
     <androidx.camera.view.PreviewView
         android:id="@+id/scanner_preview"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Полупрозрачный фон поверх камеры -->
     <View
         android:id="@+id/scanner_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#66000000" />
 
+    <!-- Рамка сканирования по центру экрана -->
     <View
         android:id="@+id/scanner_framing_rect"
         android:layout_width="280dp"
@@ -23,6 +27,7 @@
         android:background="@android:color/transparent"
         android:outlineProvider="bounds" />
 
+    <!-- 2. ВЕРХНИЙ ТУЛБАР -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -39,6 +44,36 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
+    <!-- 3. ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (Размещен поверх камеры, чуть ниже тулбара) -->
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/toggle_scan_mode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="80dp"
+        app:singleSelection="true"
+        app:checkedButton="@id/btn_scan_product">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_scan_product"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Штрихкод"
+            android:textColor="@android:color/white"
+            app:strokeColor="@android:color/white" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_scan_receipt"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Чек"
+            android:textColor="@android:color/white"
+            app:strokeColor="@android:color/white" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+    <!-- Подсказка внизу экрана -->
     <TextView
         android:id="@+id/scanner_hint"
         android:layout_width="wrap_content"
@@ -49,6 +84,7 @@
         android:textColor="@android:color/white"
         android:textSize="16sp" />
 
+    <!-- Кнопка ручного ввода в углу -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_manual_entry"
         android:layout_width="wrap_content"

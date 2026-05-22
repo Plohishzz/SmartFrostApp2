@@ -72,11 +72,31 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+
+const val BASE_URL = "http://10.178.45.117:8010/"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var isLoggedIn = false
     private lateinit var prefs: SharedPreferences
+
+    enum class ScanMode {
+        PRODUCT, // Сканирование штрихкода товара
+        RECEIPT  // Сканирование QR-кода чека
+    }
+
+    private var currentScanMode = ScanMode.PRODUCT // Режим по умолчанию
 
     private val products = mutableListOf<Product>()
     private var currentProductsBinding: ScreenProductsBinding? = null
@@ -205,8 +225,8 @@ class MainActivity : AppCompatActivity() {
     private fun applyFiltersAndSort(productsBinding: ScreenProductsBinding) {
         var filtered = products.filter { product ->
             val matchesSearch = searchQuery.isEmpty() ||
-                product.name.contains(searchQuery, ignoreCase = true) ||
-                product.quantity.contains(searchQuery, ignoreCase = true)
+                    product.name.contains(searchQuery, ignoreCase = true) ||
+                    product.quantity.contains(searchQuery, ignoreCase = true)
             val matchesCategory = selectedCategoryFilters.isEmpty() || selectedCategoryFilters.contains(product.category)
             matchesSearch && matchesCategory
         }
@@ -863,6 +883,17 @@ class MainActivity : AppCompatActivity() {
         binding.fragmentContainer.removeAllViews()
         binding.fragmentContainer.addView(scannerBinding.root)
 
+        // 👇 Слушаем нажатия на кнопки переключателя режимов
+        scannerBinding.toggleScanMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                currentScanMode = if (checkedId == R.id.btn_scan_receipt) {
+                    ScanMode.RECEIPT
+                } else {
+                    ScanMode.PRODUCT
+                }
+            }
+        }
+
         scannerBinding.scannerToolbar.setNavigationOnClickListener {
             isScanningActive = false
             binding.bottomNavigation.selectedItemId = R.id.nav_stocks
@@ -923,6 +954,7 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
     private fun processImageProxy(imageProxy: ImageProxy, scannerBinding: ScreenScannerBinding) {
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
@@ -935,7 +967,14 @@ class MainActivity : AppCompatActivity() {
                         if (!rawValue.isNullOrEmpty()) {
                             isScanningActive = false
                             runOnUiThread {
-                                handleScannedBarcode(rawValue, scannerBinding)
+                                // 👇 НАПРЯМУЮ проверяем, какая кнопка нажата на экране в данный момент!
+                                val isReceiptMode = scannerBinding.toggleScanMode.checkedButtonId == R.id.btn_scan_receipt
+
+                                if (isReceiptMode) {
+                                    handleScannedReceiptQr(rawValue, scannerBinding)
+                                } else {
+                                    handleScannedBarcode(rawValue, scannerBinding)
+                                }
                             }
                         }
                     }
@@ -948,6 +987,95 @@ class MainActivity : AppCompatActivity() {
                 }
         } else {
             imageProxy.close()
+        }
+    }
+
+    private fun handleScannedReceiptQr(qrRaw: String, scannerBinding: ScreenScannerBinding) {
+        Toast.makeText(this, "Отправляем чек на бэкенд...", Toast.LENGTH_SHORT).show()
+        sendQrToBackend(qrRaw)
+    }
+
+    private fun sendQrToBackend(qrRaw: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Используем IP твоего компьютера и порт 8001
+                val url = URL("${BASE_URL}qr-text")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+                // Формируем JSON-тело по структуре бэкенда (передаем мок-данные Ромы)
+                val jsonParam = JSONObject().apply {
+                    put("user_id", 1) // id мок-пользователя Ромы из init_user()
+                    put("qrraw", qrRaw)
+                    put("token", "mysecretpassphrase") // Токен зашивается на бэке, можно слать заглушку
+                }
+
+                val os = OutputStreamWriter(connection.outputStream)
+                os.write(jsonParam.toString())
+                os.flush()
+                os.close()
+
+                if (connection.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val response = reader.readText()
+                    reader.close()
+
+                    // Бэкенд возвращает нам JSON-список объектов с 'name' и 'quantity'
+                    val jsonArray = JSONArray(response)
+                    val newProducts = mutableListOf<Product>()
+
+                    val cal = Calendar.getInstance()
+                    val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.getDefault())
+                    val addedDate = dateFormat.format(cal.time)
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val name = obj.getString("name")
+                        val qty = obj.getString("quantity")
+
+                        newProducts.add(
+                            Product(
+                                id = UUID.randomUUID().toString(),
+                                name = name,
+                                quantity = qty,
+                                category = "Прочее", // По умолчанию падает в "Прочее"
+                                expiryDays = 7,     // Дефолтный срок
+                                icon = Constants.suggestIcon(name),
+                                addedDate = addedDate
+                            )
+                        )
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        // Добавляем все распознанные продукты в наш общий список продуктов
+                        products.addAll(newProducts)
+                        ProductRepository.saveProducts(products)
+
+                        // Логируем добавление в историю
+                        newProducts.forEach { logAction(ActionType.ADDED, it) }
+
+                        Toast.makeText(this@MainActivity, "Распознано и добавлено продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
+
+                        // Перекидываем пользователя на главный экран со списком продуктов
+                        binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Ошибка сервера: ${connection.responseCode}", Toast.LENGTH_SHORT).show()
+                        isScanningActive = true // Возобновляем работу камеры
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Не удалось обработать QR чека", Toast.LENGTH_SHORT).show()
+                    isScanningActive = true // Возобновляем работу камеры
+                }
+            }
         }
     }
 
