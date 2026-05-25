@@ -89,20 +89,15 @@ const val BASE_URL = "http://10.178.45.117:8010/"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
-    private var isLoggedIn = false
     private lateinit var prefs: SharedPreferences
 
-    enum class ScanMode {
-        PRODUCT, // Сканирование штрихкода товара
-        RECEIPT  // Сканирование QR-кода чека
-    }
-
-    private var currentScanMode = ScanMode.PRODUCT // Режим по умолчанию
-
-    private val products = mutableListOf<Product>()
+    // Данные сессии
+    private var isLoggedIn = false
     private var userId: Int = 0
     private var userToken: String = ""
+
     private var currentProductsBinding: ScreenProductsBinding? = null
+    private val products = mutableListOf<Product>()
     private val categories = mutableListOf("Молочное", "Мясо", "Рыба", "Овощи", "Фрукты", "Бакалея", "Напитки", "Замороженное", "Соусы и приправы", "Прочее")
     private val units = listOf("кг", "л", "шт", "г", "уп")
 
@@ -118,6 +113,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         applyTheme()
+
+        // ВОССТАНАВЛИВАЕМ СЕССИЮ ПРИ ЗАПУСКЕ И ПЕРЕВОРОТЕ ЭКРАНА!
+        isLoggedIn = prefs.getBoolean("is_logged_in", false)
+        userId = prefs.getInt("user_id", 0)
+        userToken = prefs.getString("user_token", "") ?: ""
+
         UserProductTemplates.init(this)
         ProductRepository.init(this)
         ActionHistoryRepository.init(this)
@@ -181,12 +182,20 @@ class MainActivity : AppCompatActivity() {
 
             if (email.isNotEmpty() && password.isNotEmpty()) {
                 performBackendLogin(email, password) { id, token, message ->
-                    // 👇 ДОБАВЛЯЕМ RUN ON UI THREAD, ЧТОБЫ НЕ КРАШИЛОСЬ!
                     runOnUiThread {
                         if (id != null && token != null) {
                             userId = id
                             userToken = token
                             isLoggedIn = true
+
+                            // СОХРАНЯЕМ СЕССИЮ В ПАМЯТЬ ТЕЛЕФОНА
+                            prefs.edit().apply {
+                                putBoolean("is_logged_in", true)
+                                putInt("user_id", id)
+                                putString("user_token", token)
+                                apply()
+                            }
+
                             showMain()
                         } else {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
@@ -197,8 +206,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Заполните все поля", Toast.LENGTH_SHORT).show()
             }
         }
-
-        // 👇 Теперь обращаемся к ссылке регистрации напрямую, так же как к полям!
         loginBinding.registerLink.setOnClickListener {
             showRegister()
         }
@@ -206,8 +213,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRegister() {
         binding.bottomNavigation.visibility = View.GONE
-
-        // Надуваем наш новый экран регистрации
         val registerBinding = ScreenRegisterBinding.inflate(layoutInflater, binding.fragmentContainer, false)
         binding.fragmentContainer.removeAllViews()
         binding.fragmentContainer.addView(registerBinding.root)
@@ -223,18 +228,6 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                registerBinding.txtRegisterError.visibility = View.VISIBLE
-                registerBinding.txtRegisterError.text = "Некорректный email"
-                return@setOnClickListener
-            }
-
-            if (password.length < 6) {
-                registerBinding.txtRegisterError.visibility = View.VISIBLE
-                registerBinding.txtRegisterError.text = "Пароль должен быть не менее 6 символов"
-                return@setOnClickListener
-            }
-
             registerBinding.txtRegisterError.visibility = View.VISIBLE
             registerBinding.txtRegisterError.text = "Регистрация..."
 
@@ -244,6 +237,15 @@ class MainActivity : AppCompatActivity() {
                         userId = id
                         userToken = token
                         isLoggedIn = true
+
+                        // СОХРАНЯЕМ СЕССИЮ В ПАМЯТЬ ТЕЛЕФОНА
+                        prefs.edit().apply {
+                            putBoolean("is_logged_in", true)
+                            putInt("user_id", id)
+                            putString("user_token", token)
+                            apply()
+                        }
+
                         showMain()
                         Toast.makeText(this@MainActivity, "Регистрация успешна!", Toast.LENGTH_SHORT).show()
                     } else {
@@ -255,13 +257,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         registerBinding.btnBackToLogin.setOnClickListener {
-            showLogin() // Возвращаемся ко входу
+            showLogin()
         }
     }
 
     private fun showMain() {
         binding.bottomNavigation.visibility = View.VISIBLE
-        binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+
+        // Очищаем старые продукты, чтобы не было дубликатов
+        products.clear()
+
         val saved = ProductRepository.loadProducts()
         if (saved.isEmpty()) {
             products.addAll(listOf(
@@ -272,7 +277,16 @@ class MainActivity : AppCompatActivity() {
         } else {
             products.addAll(saved)
         }
-        showProducts()
+
+        // 👇 ИСПРАВЛЕНИЕ: Принудительно рисуем нужный экран, чтобы он не был пустым при повороте
+        when (binding.bottomNavigation.selectedItemId) {
+            R.id.nav_scanner -> showScanner()
+            R.id.nav_settings -> showSettings()
+            else -> {
+                binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                showProducts()
+            }
+        }
     }
 
     private fun showProducts() {
@@ -919,6 +933,29 @@ class MainActivity : AppCompatActivity() {
         settingsBinding.historyItem.setOnClickListener {
             showHistory()
         }
+
+        // 👇 ИСПРАВЛЕНИЕ: Логика выхода из аккаунта
+        // Безопасно ищем кнопку выхода (если в XML у тебя другой ID - можешь поменять R.id.btn_logout на свой)
+        // 👇 Удалили старый поиск с ошибками и написали чисто через Binding!
+        settingsBinding.btnLogout.setOnClickListener {
+            // 1. Стираем сессию из постоянной памяти
+            prefs.edit().apply {
+                putBoolean("is_logged_in", false)
+                putInt("user_id", 0)
+                putString("user_token", "")
+                apply()
+            }
+
+            // 2. Сбрасываем переменные в оперативной памяти
+            isLoggedIn = false
+            userId = 0
+            userToken = ""
+            products.clear()
+
+            // 3. Выкидываем пользователя на экран входа
+            showLogin()
+
+        }
     }
 
     private fun applyTheme() {
@@ -963,17 +1000,6 @@ class MainActivity : AppCompatActivity() {
         val scannerBinding = ScreenScannerBinding.inflate(layoutInflater, binding.fragmentContainer, false)
         binding.fragmentContainer.removeAllViews()
         binding.fragmentContainer.addView(scannerBinding.root)
-
-        // 👇 Слушаем нажатия на кнопки переключателя режимов
-        scannerBinding.toggleScanMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (isChecked) {
-                currentScanMode = if (checkedId == R.id.btn_scan_receipt) {
-                    ScanMode.RECEIPT
-                } else {
-                    ScanMode.PRODUCT
-                }
-            }
-        }
 
         scannerBinding.scannerToolbar.setNavigationOnClickListener {
             isScanningActive = false
@@ -1079,7 +1105,6 @@ class MainActivity : AppCompatActivity() {
     private fun sendQrToBackend(qrRaw: String) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Используем IP твоего компьютера и порт 8001
                 val url = URL("${BASE_URL}qr-text")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
@@ -1088,11 +1113,11 @@ class MainActivity : AppCompatActivity() {
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
 
-                // Формируем JSON-тело по структуре бэкенда (передаем мок-данные Ромы)
+                // 1. ИСПРАВЛЕНИЕ: Теперь отправляем реальный ID и реальный Токен вашей сессии!
                 val jsonParam = JSONObject().apply {
-                    put("user_id", 1) // id мок-пользователя Ромы из init_user()
+                    put("user_id", userId)
                     put("qrraw", qrRaw)
-                    put("token", "mysecretpassphrase") // Токен зашивается на бэке, можно слать заглушку
+                    put("token", userToken)
                 }
 
                 val os = OutputStreamWriter(connection.outputStream)
@@ -1105,56 +1130,71 @@ class MainActivity : AppCompatActivity() {
                     val response = reader.readText()
                     reader.close()
 
-                    // Бэкенд возвращает нам JSON-список объектов с 'name' и 'quantity'
-                    val jsonArray = JSONArray(response)
-                    val newProducts = mutableListOf<Product>()
+                    // 2. ИСПРАВЛЕНИЕ: Читаем новый формат JSON от бэкенда
+                    val jsonResponse = JSONObject(response)
+                    val message = jsonResponse.optString("message")
 
-                    val cal = Calendar.getInstance()
-                    val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.getDefault())
-                    val addedDate = dateFormat.format(cal.time)
+                    // Если бэкенд ответил "success", значит чек обработан!
+                    if (message == "success") {
+                        val itemsArray = jsonResponse.getJSONArray("items")
+                        val newProducts = mutableListOf<Product>()
 
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val name = obj.getString("name")
-                        val qty = obj.getString("quantity")
+                        val cal = Calendar.getInstance()
+                        val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.getDefault())
+                        val addedDate = dateFormat.format(cal.time)
 
-                        newProducts.add(
-                            Product(
-                                id = UUID.randomUUID().toString(),
-                                name = name,
-                                quantity = qty,
-                                category = "Прочее", // По умолчанию падает в "Прочее"
-                                expiryDays = 7,     // Дефолтный срок
-                                icon = Constants.suggestIcon(name),
-                                addedDate = addedDate
+                        for (i in 0 until itemsArray.length()) {
+                            val obj = itemsArray.getJSONObject(i)
+
+                            // 3. ИСПРАВЛЕНИЕ: Читаем новые раздельные поля name, quantity (число) и unit
+                            val name = obj.optString("name", "Неизвестный товар")
+                            val qtyDouble = obj.optDouble("quantity", 1.0)
+                            val unit = obj.optString("unit", "шт")
+
+                            // Красиво форматируем количество (например, 1.0 превращаем в "1", а 1.5 оставляем "1.5")
+                            val qtyString = if (qtyDouble % 1.0 == 0.0) qtyDouble.toInt().toString() else qtyDouble.toString()
+                            val fullQuantity = "$qtyString $unit"
+
+                            newProducts.add(
+                                Product(
+                                    id = UUID.randomUUID().toString(),
+                                    name = name,
+                                    quantity = fullQuantity,
+                                    category = "Прочее", // По умолчанию кидаем в "Прочее"
+                                    expiryDays = 7,     // Дефолтный срок
+                                    icon = Constants.suggestIcon(name),
+                                    addedDate = addedDate
+                                )
                             )
-                        )
-                    }
+                        }
 
-                    withContext(Dispatchers.Main) {
-                        // Добавляем все распознанные продукты в наш общий список продуктов
-                        products.addAll(newProducts)
-                        ProductRepository.saveProducts(products)
+                        withContext(Dispatchers.Main) {
+                            // Сохраняем и показываем продукты
+                            products.addAll(newProducts)
+                            ProductRepository.saveProducts(products)
+                            newProducts.forEach { logAction(ActionType.ADDED, it) }
 
-                        // Логируем добавление в историю
-                        newProducts.forEach { logAction(ActionType.ADDED, it) }
-
-                        Toast.makeText(this@MainActivity, "Распознано и добавлено продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
-
-                        // Перекидываем пользователя на главный экран со списком продуктов
-                        binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                            Toast.makeText(this@MainActivity, "Распознано продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
+                            binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                        }
+                    } else {
+                        // Если сервер прислал ошибку (например, "чек некорректен" или "bad token")
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Ответ сервера: $message", Toast.LENGTH_LONG).show()
+                            isScanningActive = true // Перезапускаем сканер
+                        }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(this@MainActivity, "Ошибка сервера: ${connection.responseCode}", Toast.LENGTH_SHORT).show()
-                        isScanningActive = true // Возобновляем работу камеры
+                        isScanningActive = true // Перезапускаем сканер
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Не удалось обработать QR чека", Toast.LENGTH_SHORT).show()
-                    isScanningActive = true // Возобновляем работу камеры
+                    Toast.makeText(this@MainActivity, "Ошибка при обработке чека", Toast.LENGTH_SHORT).show()
+                    isScanningActive = true // Перезапускаем сканер
                 }
             }
         }

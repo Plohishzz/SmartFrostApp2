@@ -210,5 +210,17 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_logout"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Выйти из аккаунта"
+            android:textColor="?attr/colorError"
+            app:icon="@android:drawable/ic_menu_revert"
+            app:iconGravity="textStart"
+            app:iconTint="?attr/colorError" />
+
     </LinearLayout>
 </ScrollView>
