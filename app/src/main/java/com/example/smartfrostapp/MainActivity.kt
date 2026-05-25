@@ -60,6 +60,7 @@ import com.example.smartfrostapp.databinding.ScreenProductsBinding
 import com.example.smartfrostapp.databinding.ScreenHistoryBinding
 import com.example.smartfrostapp.databinding.ScreenScannerBinding
 import com.example.smartfrostapp.databinding.ScreenSettingsBinding
+import com.example.smartfrostapp.databinding.ScreenRegisterBinding
 import com.example.smartfrostapp.ui.history.HistoryAdapter
 import com.example.smartfrostapp.ui.adapters.SuggestionAdapter
 import com.example.smartfrostapp.ui.dialogs.IconAdapter
@@ -99,6 +100,8 @@ class MainActivity : AppCompatActivity() {
     private var currentScanMode = ScanMode.PRODUCT // Режим по умолчанию
 
     private val products = mutableListOf<Product>()
+    private var userId: Int = 0
+    private var userToken: String = ""
     private var currentProductsBinding: ScreenProductsBinding? = null
     private val categories = mutableListOf("Молочное", "Мясо", "Рыба", "Овощи", "Фрукты", "Бакалея", "Напитки", "Замороженное", "Соусы и приправы", "Прочее")
     private val units = listOf("кг", "л", "шт", "г", "уп")
@@ -173,8 +176,86 @@ class MainActivity : AppCompatActivity() {
         binding.fragmentContainer.addView(loginBinding.root)
 
         loginBinding.loginButton.setOnClickListener {
-            isLoggedIn = true
-            showMain()
+            val email = loginBinding.emailEditText.text.toString().trim()
+            val password = loginBinding.passwordEditText.text.toString().trim()
+
+            if (email.isNotEmpty() && password.isNotEmpty()) {
+                performBackendLogin(email, password) { id, token, message ->
+                    // 👇 ДОБАВЛЯЕМ RUN ON UI THREAD, ЧТОБЫ НЕ КРАШИЛОСЬ!
+                    runOnUiThread {
+                        if (id != null && token != null) {
+                            userId = id
+                            userToken = token
+                            isLoggedIn = true
+                            showMain()
+                        } else {
+                            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            } else {
+                Toast.makeText(this, "Заполните все поля", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 👇 Теперь обращаемся к ссылке регистрации напрямую, так же как к полям!
+        loginBinding.registerLink.setOnClickListener {
+            showRegister()
+        }
+    }
+
+    private fun showRegister() {
+        binding.bottomNavigation.visibility = View.GONE
+
+        // Надуваем наш новый экран регистрации
+        val registerBinding = ScreenRegisterBinding.inflate(layoutInflater, binding.fragmentContainer, false)
+        binding.fragmentContainer.removeAllViews()
+        binding.fragmentContainer.addView(registerBinding.root)
+
+        registerBinding.registerButton.setOnClickListener {
+            val name = registerBinding.editRegisterName.text.toString().trim()
+            val email = registerBinding.editRegisterEmail.text.toString().trim()
+            val password = registerBinding.editRegisterPassword.text.toString().trim()
+
+            if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
+                registerBinding.txtRegisterError.visibility = View.VISIBLE
+                registerBinding.txtRegisterError.text = "Заполните все поля"
+                return@setOnClickListener
+            }
+
+            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                registerBinding.txtRegisterError.visibility = View.VISIBLE
+                registerBinding.txtRegisterError.text = "Некорректный email"
+                return@setOnClickListener
+            }
+
+            if (password.length < 6) {
+                registerBinding.txtRegisterError.visibility = View.VISIBLE
+                registerBinding.txtRegisterError.text = "Пароль должен быть не менее 6 символов"
+                return@setOnClickListener
+            }
+
+            registerBinding.txtRegisterError.visibility = View.VISIBLE
+            registerBinding.txtRegisterError.text = "Регистрация..."
+
+            performBackendRegister(name, email, password) { id, token, message ->
+                runOnUiThread {
+                    if (id != null && token != null) {
+                        userId = id
+                        userToken = token
+                        isLoggedIn = true
+                        showMain()
+                        Toast.makeText(this@MainActivity, "Регистрация успешна!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        registerBinding.txtRegisterError.visibility = View.VISIBLE
+                        registerBinding.txtRegisterError.text = message
+                    }
+                }
+            }
+        }
+
+        registerBinding.btnBackToLogin.setOnClickListener {
+            showLogin() // Возвращаемся ко входу
         }
     }
 
@@ -1517,4 +1598,107 @@ class MainActivity : AppCompatActivity() {
             cameraExecutor.shutdown()
         }
     }
-}
+
+    // Запрос регистрации на FastAPI бэкенд
+// Запрос регистрации на FastAPI бэкенд
+    private fun performBackendRegister(
+        nameValue: String,
+        emailValue: String,
+        passwordValue: String,
+        onResult: (Int?, String?, String) -> Unit
+    ) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = URL("${BASE_URL}users") // POST /users
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val jsonParam = JSONObject().apply {
+                    put("name", nameValue)
+                    put("email", emailValue)
+                    put("password", passwordValue)
+                }
+
+                val os = OutputStreamWriter(connection.outputStream)
+                os.write(jsonParam.toString())
+                os.flush()
+                os.close()
+
+                if (connection.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val response = reader.readText()
+                    reader.close()
+
+                    val jsonResponse = JSONObject(response)
+                    val message = jsonResponse.optString("message")
+                    if (message == "success") {
+                        val id = jsonResponse.getInt("user_id")
+                        val token = jsonResponse.getString("token")
+                        onResult(id, token, "success")
+                    } else if (message == "email exists") {
+                        onResult(null, null, "Этот Email уже зарегистрирован")
+                    } else {
+                        onResult(null, null, "Ошибка при регистрации")
+                    }
+                } else {
+                    onResult(null, null, "Ошибка сервера: ${connection.responseCode}")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(null, null, "Ошибка сети: ${e.message}")
+            }
+        }
+    } // 👈 ВОТ ТУТ закрывается функция регистрации!
+
+    // 👇 А здесь начинается независимая функция логина!
+    private fun performBackendLogin(
+        emailValue: String,
+        passwordValue: String,
+        onResult: (Int?, String?, String) -> Unit
+    ) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = URL("${BASE_URL}login") // POST /login
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val jsonParam = JSONObject().apply {
+                    put("email", emailValue)
+                    put("password", passwordValue)
+                }
+
+                val os = OutputStreamWriter(connection.outputStream)
+                os.write(jsonParam.toString())
+                os.flush()
+                os.close()
+
+                if (connection.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val response = reader.readText()
+                    reader.close()
+
+                    val jsonResponse = JSONObject(response)
+                    val message = jsonResponse.optString("message")
+                    if (message == "success") {
+                        val id = jsonResponse.getInt("user_id")
+                        val token = jsonResponse.getString("token")
+                        onResult(id, token, "success")
+                    } else {
+                        onResult(null, null, "Неправильная почта или пароль")
+                    }
+                } else {
+                    onResult(null, null, "Ошибка сервера: ${connection.responseCode}")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(null, null, "Ошибка сети: ${e.message}")
+            }
+        }
+    }
+
+} // Конец класса MainActivity
+
