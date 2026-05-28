@@ -116,13 +116,13 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
 
         // ВОССТАНАВЛИВАЕМ СЕССИЮ ПРИ ЗАПУСКЕ И ПЕРЕВОРОТЕ ЭКРАНА!
-        //isLoggedIn = prefs.getBoolean("is_logged_in", false)
-        //userId = prefs.getInt("user_id", 0)
-        //userToken = prefs.getString("user_token", "") ?: ""
+        isLoggedIn = prefs.getBoolean("is_logged_in", false)
+        userId = prefs.getInt("user_id", 0)
+        userToken = prefs.getString("user_token", "") ?: ""
 
-        isLoggedIn = true
+        /*isLoggedIn = true
         userId = 1
-        userToken = ""
+        userToken = ""*/
 
         UserProductTemplates.init(this)
         ProductRepository.init(this)
@@ -206,7 +206,7 @@ class MainActivity : AppCompatActivity() {
                             }
 
                             loadUserInfoFromBackend(token)
-                            loadProductsFromBackend()
+                            showMain()
                         } else {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                         }
@@ -303,17 +303,62 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 result.fold(
                     onSuccess = { backendProducts ->
-                        if (backendProducts.isNotEmpty()) {
-                            products.clear()
-                            val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", Locale.getDefault())
-                            for (bp in backendProducts) {
-                                if (bp.deleted) continue
-                                val expiryDays = if (bp.expiration != null) {
-                                    com.example.smartfrostapp.utils.calculateDaysRemaining(
-                                        bp.expiration.split("-").let { parts ->
-                                            if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0].takeLast(2)}" else ""
-                                        }
+                        if (backendProducts.isEmpty()) return@fold
+
+                        val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", Locale.getDefault())
+                        var changed = false
+
+                        for (bp in backendProducts) {
+                            if (bp.deleted) continue
+
+                            val expiryDateStr = bp.expiration?.let {
+                                val parts = it.split("-")
+                                if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0]}" else ""
+                            } ?: ""
+
+                            var existingIndex = products.indexOfFirst { it.backendId == bp.id }
+
+                            if (existingIndex == -1) {
+                                existingIndex = products.indexOfFirst {
+                                    it.backendId == 0 && it.name == bp.name && it.quantity == "${if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt() else bp.quantity} ${bp.unit}"
+                                }
+                            }
+
+                            if (existingIndex != -1) {
+                                val local = products[existingIndex]
+                                val localHasDate = local.expiryDate.isNotEmpty()
+                                val backendHasDate = expiryDateStr.isNotEmpty()
+
+                                val needsUpdate = local.backendId != bp.id ||
+                                    (backendHasDate && !localHasDate) ||
+                                    (!backendHasDate && localHasDate)
+
+                                if (needsUpdate) {
+                                    val expiryDays = if (expiryDateStr.isNotEmpty()) {
+                                        com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDateStr)
+                                    } else {
+                                        local.expiryDays
+                                    }
+                                    products[existingIndex] = local.copy(
+                                        backendId = bp.id,
+                                        name = bp.name,
+                                        quantity = "${if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt() else bp.quantity} ${bp.unit}",
+                                        category = bp.category ?: local.category,
+                                        expiryDays = expiryDays,
+                                        expiryDate = if (backendHasDate) expiryDateStr else local.expiryDate,
+                                        manufactureDate = if (backendHasDate) {
+                                            bp.expiration?.let {
+                                                try {
+                                                    dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
+                                                } catch (e: Exception) { local.manufactureDate }
+                                            } ?: local.manufactureDate
+                                        } else local.manufactureDate
                                     )
+                                    changed = true
+                                }
+                            } else {
+                                val expiryDays = if (expiryDateStr.isNotEmpty()) {
+                                    com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDateStr)
                                 } else 7
                                 val quantityStr = if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt().toString() else bp.quantity.toString()
                                 products.add(
@@ -329,15 +374,16 @@ class MainActivity : AppCompatActivity() {
                                                 dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
                                             } catch (e: Exception) { "" }
                                         } ?: "",
-                                        expiryDate = bp.expiration?.let {
-                                            val parts = it.split("-")
-                                            if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0]}" else ""
-                                        } ?: "",
+                                        expiryDate = expiryDateStr,
                                         addedDate = dateFormat.format(java.util.Date()),
                                         backendId = bp.id
                                     )
                                 )
+                                changed = true
                             }
+                        }
+
+                        if (changed) {
                             ProductRepository.saveProducts(products)
                             currentProductsBinding?.let { applyFiltersAndSort(it) }
                         }
@@ -850,12 +896,17 @@ class MainActivity : AppCompatActivity() {
 
         fun updateList(query: String = "") {
             container.removeAllViews()
+            val primaryColor = try {
+                getColor(com.google.android.material.R.color.material_dynamic_primary50)
+            } catch (e: Exception) {
+                android.graphics.Color.parseColor("#6750A4")
+            }
             categories.filter { it.contains(query, ignoreCase = true) }.forEach { category ->
                 val item = TextView(this).apply {
                     text = category
                     textSize = 18f
                     setPadding(32, 48, 32, 48)
-                    setTextColor(if (category == current) getColor(com.google.android.material.R.color.material_dynamic_primary50) else android.graphics.Color.BLACK)
+                    setTextColor(if (category == current) primaryColor else android.graphics.Color.BLACK)
                     setOnClickListener {
                         onSelected(category)
                         dialog.dismiss()
@@ -932,28 +983,49 @@ class MainActivity : AppCompatActivity() {
 
     private fun restoreDeletedProduct(entry: ActionHistoryEntry) {
         try {
+            android.util.Log.d("RestoreProduct", "productJson: ${entry.productJson}")
             val parts = entry.productJson.split("::")
-            if (parts.size >= 10) {
-                val restoredProduct = Product(
-                    id = UUID.randomUUID().toString(),
-                    name = parts[1],
-                    quantity = parts[2],
-                    category = parts[3],
-                    expiryDays = parts[4].toIntOrNull() ?: 0,
-                    icon = parts[5],
-                    isLocked = parts[6].toBoolean(),
-                    manufactureDate = parts[7],
-                    expiryDate = parts[8],
-                    addedDate = parts[9],
-                    backendId = parts.getOrNull(10)?.toIntOrNull() ?: 0
-                )
-                products.add(restoredProduct)
-                ProductRepository.saveProducts(products)
-                logAction(ActionType.ADDED, restoredProduct)
-                showHistory()
+            android.util.Log.d("RestoreProduct", "parts count: ${parts.size}, parts: $parts")
+            if (parts.size < 3) {
+                Toast.makeText(this, "Некорректные данные для восстановления", Toast.LENGTH_SHORT).show()
+                return
             }
+            val originalId = parts[0]
+            val alreadyExists = products.any { it.id == originalId }
+            if (alreadyExists) {
+                Toast.makeText(this, "Продукт уже восстановлен", Toast.LENGTH_SHORT).show()
+                ActionHistoryRepository.removeEntry(entry.id)
+                showHistory()
+                return
+            }
+            val expiryDate = if (parts.size > 8) parts[8] else ""
+            val expiryDays = if (expiryDate.isNotEmpty()) {
+                com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDate)
+            } else {
+                parts.getOrNull(4)?.toIntOrNull() ?: 0
+            }
+            val restoredProduct = Product(
+                id = originalId,
+                name = parts.getOrNull(1) ?: "Восстановленный",
+                quantity = parts.getOrNull(2) ?: "1 шт",
+                category = parts.getOrNull(3) ?: "Прочее",
+                expiryDays = expiryDays,
+                icon = parts.getOrNull(5) ?: "📦",
+                isLocked = parts.getOrNull(6)?.toBoolean() ?: false,
+                manufactureDate = if (parts.size > 7) parts[7] else "",
+                expiryDate = expiryDate,
+                addedDate = if (parts.size > 9) parts[9] else "",
+                backendId = if (parts.size > 10) parts[10].toIntOrNull() ?: 0 else 0
+            )
+            products.add(restoredProduct)
+            ProductRepository.saveProducts(products)
+            logAction(ActionType.ADDED, restoredProduct)
+            syncAddProductToBackend(restoredProduct)
+            ActionHistoryRepository.removeEntry(entry.id)
+            showHistory()
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(this, "Ошибка восстановления: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1231,6 +1303,9 @@ class MainActivity : AppCompatActivity() {
                         val cal = Calendar.getInstance()
                         val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.getDefault())
                         val addedDate = dateFormat.format(cal.time)
+                        val manufactureDate = addedDate
+                        cal.add(Calendar.DAY_OF_YEAR, 7)
+                        val expiryDate = dateFormat.format(cal.time)
 
                         val newProducts = mutableListOf<Product>()
                         for (item in backendItems) {
@@ -1248,6 +1323,8 @@ class MainActivity : AppCompatActivity() {
                                     category = item.category ?: "Прочее",
                                     expiryDays = 7,
                                     icon = Constants.suggestIcon(item.name),
+                                    manufactureDate = manufactureDate,
+                                    expiryDate = expiryDate,
                                     addedDate = addedDate
                                 )
                             )
@@ -1261,12 +1338,16 @@ class MainActivity : AppCompatActivity() {
                             val qtyParts = np.quantity.split(" ")
                             val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
                             val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+                            val expirationStr = if (np.expiryDate.isNotEmpty()) {
+                                val parts = np.expiryDate.split(".")
+                                if (parts.size == 3) "20${parts[2]}-${parts[1]}-${parts[0]}" else null
+                            } else null
                             com.example.smartfrostapp.network.ApiClient.BackendProductItem(
                                 name = np.name,
                                 quantity = qtyDouble.toString(),
                                 unit = unit,
                                 category = np.category,
-                                expiration = null
+                                expiration = expirationStr
                             )
                         }
 

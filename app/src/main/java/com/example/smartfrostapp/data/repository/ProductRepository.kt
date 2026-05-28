@@ -3,6 +3,7 @@ package com.example.smartfrostapp.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.smartfrostapp.data.model.Product
+import com.example.smartfrostapp.utils.calculateDaysRemaining
 
 object ProductRepository {
     private const val PREFS_NAME = "product_data_prefs"
@@ -44,16 +45,22 @@ object ProductRepository {
             val value = prefs.getString("$KEY_PREFIX$index", null) ?: return@mapNotNull null
             val parts = value.split(SEP)
             if (parts.size >= 10) {
+                val expiryDate = parts[8]
+                val recalculatedExpiryDays = if (expiryDate.isNotEmpty()) {
+                    calculateDaysRemaining(expiryDate)
+                } else {
+                    parts[4].toIntOrNull() ?: 0
+                }
                 Product(
                     id = parts[0],
                     name = parts[1],
                     quantity = parts[2],
                     category = parts[3],
-                    expiryDays = parts[4].toIntOrNull() ?: 0,
+                    expiryDays = recalculatedExpiryDays,
                     icon = parts[5],
                     isLocked = parts[6].toBoolean(),
                     manufactureDate = parts[7],
-                    expiryDate = parts[8],
+                    expiryDate = expiryDate,
                     addedDate = parts[9],
                     backendId = parts.getOrNull(10)?.toIntOrNull() ?: 0
                 )
