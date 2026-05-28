@@ -10,7 +10,8 @@ data class Product(
     val isLocked: Boolean = false,
     val manufactureDate: String = "",
     val expiryDate: String = "",
-    val addedDate: String = ""
+    val addedDate: String = "",
+    val backendId: Int = 0
 )
 
 data class ProductTemplate(

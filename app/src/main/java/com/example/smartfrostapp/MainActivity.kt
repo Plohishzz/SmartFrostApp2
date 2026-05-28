@@ -84,8 +84,7 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-
-const val BASE_URL = "http://10.178.45.117:8010/"
+import com.example.smartfrostapp.utils.NetworkConstants
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -108,6 +107,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private var barcodeScanner: BarcodeScanner? = null
     private var isScanningActive = false
+    private var lastScanTime: Long = 0
+    private val SCAN_INTERVAL_MS = 300L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,9 +116,13 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
 
         // ВОССТАНАВЛИВАЕМ СЕССИЮ ПРИ ЗАПУСКЕ И ПЕРЕВОРОТЕ ЭКРАНА!
-        isLoggedIn = prefs.getBoolean("is_logged_in", false)
-        userId = prefs.getInt("user_id", 0)
-        userToken = prefs.getString("user_token", "") ?: ""
+        //isLoggedIn = prefs.getBoolean("is_logged_in", false)
+        //userId = prefs.getInt("user_id", 0)
+        //userToken = prefs.getString("user_token", "") ?: ""
+
+        isLoggedIn = true
+        userId = 1
+        userToken = ""
 
         UserProductTemplates.init(this)
         ProductRepository.init(this)
@@ -127,12 +132,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        if (!isLoggedIn) {
-            showLogin()
-        } else {
-            showMain()
-        }
+        cameraExecutor = Executors.newSingleThreadExecutor()
 
+        // СНАЧАЛА настраиваем слушатель нажатий нижнего меню
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_stocks -> {
@@ -151,7 +153,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        cameraExecutor = Executors.newSingleThreadExecutor()
+        // ПОТОМ решаем, что рисовать
+        if (!isLoggedIn) {
+            showLogin()
+        } else {
+            // Достаем сохраненную вкладку (если экран перевернули) или по умолчанию берем "Продукты"
+            val targetTab = savedInstanceState?.getInt("SAVED_TAB") ?: R.id.nav_stocks
+            showMain(targetTab)
+        }
 
         val options = BarcodeScannerOptions.Builder()
             .setBarcodeFormats(
@@ -188,15 +197,16 @@ class MainActivity : AppCompatActivity() {
                             userToken = token
                             isLoggedIn = true
 
-                            // СОХРАНЯЕМ СЕССИЮ В ПАМЯТЬ ТЕЛЕФОНА
                             prefs.edit().apply {
                                 putBoolean("is_logged_in", true)
                                 putInt("user_id", id)
                                 putString("user_token", token)
+                                putString("user_email", email)
                                 apply()
                             }
 
-                            showMain()
+                            loadUserInfoFromBackend(token)
+                            loadProductsFromBackend()
                         } else {
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                         }
@@ -229,29 +239,24 @@ class MainActivity : AppCompatActivity() {
             }
 
             registerBinding.txtRegisterError.visibility = View.VISIBLE
-            registerBinding.txtRegisterError.text = "Регистрация..."
+            registerBinding.txtRegisterError.text = "Отправляем код подтверждения..."
 
-            performBackendRegister(name, email, password) { id, token, message ->
+            lifecycleScope.launch(Dispatchers.IO) {
+                val result = com.example.smartfrostapp.network.ApiClient.sendVerificationCode(email)
                 runOnUiThread {
-                    if (id != null && token != null) {
-                        userId = id
-                        userToken = token
-                        isLoggedIn = true
-
-                        // СОХРАНЯЕМ СЕССИЮ В ПАМЯТЬ ТЕЛЕФОНА
-                        prefs.edit().apply {
-                            putBoolean("is_logged_in", true)
-                            putInt("user_id", id)
-                            putString("user_token", token)
-                            apply()
+                    result.fold(
+                        onSuccess = { message ->
+                            val intent = android.content.Intent(this@MainActivity, VerificationActivity::class.java)
+                            intent.putExtra("email", email)
+                            intent.putExtra("name", name)
+                            intent.putExtra("password", password)
+                            startActivity(intent)
+                        },
+                        onFailure = { error ->
+                            registerBinding.txtRegisterError.visibility = View.VISIBLE
+                            registerBinding.txtRegisterError.text = error.message ?: "Ошибка отправки кода"
                         }
-
-                        showMain()
-                        Toast.makeText(this@MainActivity, "Регистрация успешна!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        registerBinding.txtRegisterError.visibility = View.VISIBLE
-                        registerBinding.txtRegisterError.text = message
-                    }
+                    )
                 }
             }
         }
@@ -261,10 +266,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showMain() {
+    private fun showMain(targetTab: Int = R.id.nav_stocks) {
         binding.bottomNavigation.visibility = View.VISIBLE
 
-        // Очищаем старые продукты, чтобы не было дубликатов
         products.clear()
 
         val saved = ProductRepository.loadProducts()
@@ -278,13 +282,70 @@ class MainActivity : AppCompatActivity() {
             products.addAll(saved)
         }
 
-        // 👇 ИСПРАВЛЕНИЕ: Принудительно рисуем нужный экран, чтобы он не был пустым при повороте
-        when (binding.bottomNavigation.selectedItemId) {
-            R.id.nav_scanner -> showScanner()
-            R.id.nav_settings -> showSettings()
-            else -> {
-                binding.bottomNavigation.selectedItemId = R.id.nav_stocks
-                showProducts()
+        if (binding.bottomNavigation.selectedItemId == targetTab) {
+            when (targetTab) {
+                R.id.nav_scanner -> showScanner()
+                R.id.nav_settings -> showSettings()
+                else -> showProducts()
+            }
+        } else {
+            binding.bottomNavigation.selectedItemId = targetTab
+        }
+
+        if (userToken.isNotEmpty()) {
+            syncProductsFromBackend()
+        }
+    }
+
+    private fun syncProductsFromBackend() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = com.example.smartfrostapp.network.ApiClient.getItems(userToken)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { backendProducts ->
+                        if (backendProducts.isNotEmpty()) {
+                            products.clear()
+                            val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", Locale.getDefault())
+                            for (bp in backendProducts) {
+                                if (bp.deleted) continue
+                                val expiryDays = if (bp.expiration != null) {
+                                    com.example.smartfrostapp.utils.calculateDaysRemaining(
+                                        bp.expiration.split("-").let { parts ->
+                                            if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0].takeLast(2)}" else ""
+                                        }
+                                    )
+                                } else 7
+                                val quantityStr = if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt().toString() else bp.quantity.toString()
+                                products.add(
+                                    Product(
+                                        id = UUID.randomUUID().toString(),
+                                        name = bp.name,
+                                        quantity = "$quantityStr ${bp.unit}",
+                                        category = bp.category ?: "Прочее",
+                                        expiryDays = expiryDays,
+                                        icon = com.example.smartfrostapp.utils.Constants.suggestIcon(bp.name),
+                                        manufactureDate = bp.expiration?.let {
+                                            try {
+                                                dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
+                                            } catch (e: Exception) { "" }
+                                        } ?: "",
+                                        expiryDate = bp.expiration?.let {
+                                            val parts = it.split("-")
+                                            if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0]}" else ""
+                                        } ?: "",
+                                        addedDate = dateFormat.format(java.util.Date()),
+                                        backendId = bp.id
+                                    )
+                                )
+                            }
+                            ProductRepository.saveProducts(products)
+                            currentProductsBinding?.let { applyFiltersAndSort(it) }
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.e("SyncProducts", "Failed to load from backend: ${error.message}")
+                    }
+                )
             }
         }
     }
@@ -342,11 +403,13 @@ class MainActivity : AppCompatActivity() {
                     products[index] = updated
                     ProductRepository.saveProducts(products)
                     logAction(ActionType.EDITED, updated)
+                    syncUpdateProductToBackend(updated)
                     applyFiltersAndSort(productsBinding)
                 }
             },
             onDeleteClick = { productToDelete ->
                 logAction(ActionType.DELETED, productToDelete)
+                syncDeleteProductToBackend(productToDelete.backendId)
                 products.remove(productToDelete)
                 ProductRepository.saveProducts(products)
                 applyFiltersAndSort(productsBinding)
@@ -647,6 +710,7 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
                     ProductRepository.saveProducts(products)
+                    syncUpdateProductToBackend(products[index])
                     currentProductsBinding?.let { applyFiltersAndSort(it) }
                     dialog.dismiss()
                 } else {
@@ -667,6 +731,7 @@ class MainActivity : AppCompatActivity() {
                     products.add(newProduct)
                     ProductRepository.saveProducts(products)
                     logAction(ActionType.ADDED, newProduct)
+                    syncAddProductToBackend(newProduct)
                     UserProductTemplates.saveTemplate(
                         ProductTemplate(name, selectedIcon, expiryDays, selectedProductCategory),
                         qty,
@@ -879,7 +944,8 @@ class MainActivity : AppCompatActivity() {
                     isLocked = parts[6].toBoolean(),
                     manufactureDate = parts[7],
                     expiryDate = parts[8],
-                    addedDate = parts[9]
+                    addedDate = parts[9],
+                    backendId = parts.getOrNull(10)?.toIntOrNull() ?: 0
                 )
                 products.add(restoredProduct)
                 ProductRepository.saveProducts(products)
@@ -902,7 +968,8 @@ class MainActivity : AppCompatActivity() {
             product.isLocked.toString(),
             product.manufactureDate,
             product.expiryDate,
-            product.addedDate
+            product.addedDate,
+            product.backendId.toString()
         ).joinToString("::")
         ActionHistoryRepository.addEntry(ActionHistoryEntry(
             id = UUID.randomUUID().toString(),
@@ -919,6 +986,8 @@ class MainActivity : AppCompatActivity() {
         binding.fragmentContainer.removeAllViews()
         binding.fragmentContainer.addView(settingsBinding.root)
 
+        loadUserInfo(settingsBinding)
+
         val currentTheme = prefs.getString("theme", "system") ?: "system"
         settingsBinding.currentThemeText.text = when (currentTheme) {
             "light" -> "Светлая"
@@ -934,27 +1003,70 @@ class MainActivity : AppCompatActivity() {
             showHistory()
         }
 
-        // 👇 ИСПРАВЛЕНИЕ: Логика выхода из аккаунта
-        // Безопасно ищем кнопку выхода (если в XML у тебя другой ID - можешь поменять R.id.btn_logout на свой)
-        // 👇 Удалили старый поиск с ошибками и написали чисто через Binding!
         settingsBinding.btnLogout.setOnClickListener {
-            // 1. Стираем сессию из постоянной памяти
             prefs.edit().apply {
                 putBoolean("is_logged_in", false)
                 putInt("user_id", 0)
                 putString("user_token", "")
+                remove("user_name")
+                remove("user_email")
                 apply()
             }
 
-            // 2. Сбрасываем переменные в оперативной памяти
             isLoggedIn = false
             userId = 0
             userToken = ""
             products.clear()
 
-            // 3. Выкидываем пользователя на экран входа
             showLogin()
+        }
+    }
 
+    private fun loadUserInfo(settingsBinding: ScreenSettingsBinding) {
+        val cachedName = prefs.getString("user_name", "")
+        val cachedEmail = prefs.getString("user_email", "")
+
+        if (!cachedName.isNullOrEmpty()) {
+            settingsBinding.userNameText.text = cachedName
+        }
+        if (!cachedEmail.isNullOrEmpty()) {
+            settingsBinding.userEmailText.text = cachedEmail
+        }
+
+        if (userToken.isEmpty()) {
+            if (cachedName.isNullOrEmpty()) {
+                settingsBinding.userNameText.text = "Пользователь"
+            }
+            if (cachedEmail.isNullOrEmpty()) {
+                settingsBinding.userEmailText.text = ""
+            }
+            return
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = com.example.smartfrostapp.network.ApiClient.getUser(userToken)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { userInfo ->
+                        settingsBinding.userNameText.text = userInfo.name
+                        settingsBinding.userEmailText.text = userInfo.email
+                        prefs.edit().apply {
+                            putString("user_name", userInfo.name)
+                            putString("user_email", userInfo.email)
+                            apply()
+                        }
+                    },
+                    onFailure = { error ->
+                        if (cachedName.isNullOrEmpty()) {
+                            settingsBinding.userNameText.text = "Пользователь"
+                        }
+                        if (cachedEmail.isNullOrEmpty()) {
+                            settingsBinding.userEmailText.text = ""
+                        }
+                        android.util.Log.e("UserInfo", "Failed to load: ${error.message}")
+                    }
+                )
+            }
         }
     }
 
@@ -1040,6 +1152,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val imageAnalysis = ImageAnalysis.Builder()
+            .setTargetResolution(android.util.Size(640, 480))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
 
@@ -1063,8 +1176,15 @@ class MainActivity : AppCompatActivity() {
 
     @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
     private fun processImageProxy(imageProxy: ImageProxy, scannerBinding: ScreenScannerBinding) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastScanTime < SCAN_INTERVAL_MS) {
+            imageProxy.close()
+            return
+        }
+
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
+            lastScanTime = currentTime
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             barcodeScanner?.process(image)
                 ?.addOnSuccessListener { barcodes ->
@@ -1104,98 +1224,65 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendQrToBackend(qrRaw: String) {
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = URL("${BASE_URL}qr-text")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.doOutput = true
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
-
-                // 1. ИСПРАВЛЕНИЕ: Теперь отправляем реальный ID и реальный Токен вашей сессии!
-                val jsonParam = JSONObject().apply {
-                    put("user_id", userId)
-                    put("qrraw", qrRaw)
-                    put("token", userToken)
-                }
-
-                val os = OutputStreamWriter(connection.outputStream)
-                os.write(jsonParam.toString())
-                os.flush()
-                os.close()
-
-                if (connection.responseCode == 200) {
-                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                    val response = reader.readText()
-                    reader.close()
-
-                    // 2. ИСПРАВЛЕНИЕ: Читаем новый формат JSON от бэкенда
-                    val jsonResponse = JSONObject(response)
-                    val message = jsonResponse.optString("message")
-
-                    // Если бэкенд ответил "success", значит чек обработан!
-                    if (message == "success") {
-                        val itemsArray = jsonResponse.getJSONArray("items")
-                        val newProducts = mutableListOf<Product>()
-
+            val result = com.example.smartfrostapp.network.ApiClient.scanReceiptQr(userToken, userId, qrRaw)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { backendItems ->
                         val cal = Calendar.getInstance()
                         val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.getDefault())
                         val addedDate = dateFormat.format(cal.time)
 
-                        for (i in 0 until itemsArray.length()) {
-                            val obj = itemsArray.getJSONObject(i)
-
-                            // 3. ИСПРАВЛЕНИЕ: Читаем новые раздельные поля name, quantity (число) и unit
-                            val name = obj.optString("name", "Неизвестный товар")
-                            val qtyDouble = obj.optDouble("quantity", 1.0)
-                            val unit = obj.optString("unit", "шт")
-
-                            // Красиво форматируем количество (например, 1.0 превращаем в "1", а 1.5 оставляем "1.5")
-                            val qtyString = if (qtyDouble % 1.0 == 0.0) qtyDouble.toInt().toString() else qtyDouble.toString()
-                            val fullQuantity = "$qtyString $unit"
-
+                        val newProducts = mutableListOf<Product>()
+                        for (item in backendItems) {
+                            val qtyString = if (item.quantity.toDoubleOrNull()?.let { it % 1.0 == 0.0 } == true) {
+                                item.quantity.toDoubleOrNull()?.toInt().toString()
+                            } else {
+                                item.quantity
+                            }
+                            val fullQuantity = "$qtyString ${item.unit}"
                             newProducts.add(
                                 Product(
                                     id = UUID.randomUUID().toString(),
-                                    name = name,
+                                    name = item.name,
                                     quantity = fullQuantity,
-                                    category = "Прочее", // По умолчанию кидаем в "Прочее"
-                                    expiryDays = 7,     // Дефолтный срок
-                                    icon = Constants.suggestIcon(name),
+                                    category = item.category ?: "Прочее",
+                                    expiryDays = 7,
+                                    icon = Constants.suggestIcon(item.name),
                                     addedDate = addedDate
                                 )
                             )
                         }
 
-                        withContext(Dispatchers.Main) {
-                            // Сохраняем и показываем продукты
-                            products.addAll(newProducts)
-                            ProductRepository.saveProducts(products)
-                            newProducts.forEach { logAction(ActionType.ADDED, it) }
+                        products.addAll(newProducts)
+                        ProductRepository.saveProducts(products)
+                        newProducts.forEach { logAction(ActionType.ADDED, it) }
 
-                            Toast.makeText(this@MainActivity, "Распознано продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
-                            binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                        val backendItemsForSync = newProducts.map { np ->
+                            val qtyParts = np.quantity.split(" ")
+                            val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                            val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+                            com.example.smartfrostapp.network.ApiClient.BackendProductItem(
+                                name = np.name,
+                                quantity = qtyDouble.toString(),
+                                unit = unit,
+                                category = np.category,
+                                expiration = null
+                            )
                         }
-                    } else {
-                        // Если сервер прислал ошибку (например, "чек некорректен" или "bad token")
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(this@MainActivity, "Ответ сервера: $message", Toast.LENGTH_LONG).show()
-                            isScanningActive = true // Перезапускаем сканер
+
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            com.example.smartfrostapp.network.ApiClient.addItems(userToken, backendItemsForSync)
                         }
+
+                        Toast.makeText(this@MainActivity, "Распознано продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
+                        binding.bottomNavigation.selectedItemId = R.id.nav_stocks
+                        isScanningActive = true
+                    },
+                    onFailure = { error ->
+                        Toast.makeText(this@MainActivity, "Ошибка: ${error.message}", Toast.LENGTH_LONG).show()
+                        isScanningActive = true
                     }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Ошибка сервера: ${connection.responseCode}", Toast.LENGTH_SHORT).show()
-                        isScanningActive = true // Перезапускаем сканер
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Ошибка при обработке чека", Toast.LENGTH_SHORT).show()
-                    isScanningActive = true // Перезапускаем сканер
-                }
+                )
             }
         }
     }
@@ -1639,105 +1726,200 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Запрос регистрации на FastAPI бэкенд
-// Запрос регистрации на FastAPI бэкенд
-    private fun performBackendRegister(
-        nameValue: String,
-        emailValue: String,
-        passwordValue: String,
-        onResult: (Int?, String?, String) -> Unit
-    ) {
+    private fun loadProductsFromBackend() {
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = URL("${BASE_URL}users") // POST /users
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.doOutput = true
-
-                val jsonParam = JSONObject().apply {
-                    put("name", nameValue)
-                    put("email", emailValue)
-                    put("password", passwordValue)
-                }
-
-                val os = OutputStreamWriter(connection.outputStream)
-                os.write(jsonParam.toString())
-                os.flush()
-                os.close()
-
-                if (connection.responseCode == 200) {
-                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                    val response = reader.readText()
-                    reader.close()
-
-                    val jsonResponse = JSONObject(response)
-                    val message = jsonResponse.optString("message")
-                    if (message == "success") {
-                        val id = jsonResponse.getInt("user_id")
-                        val token = jsonResponse.getString("token")
-                        onResult(id, token, "success")
-                    } else if (message == "email exists") {
-                        onResult(null, null, "Этот Email уже зарегистрирован")
-                    } else {
-                        onResult(null, null, "Ошибка при регистрации")
+            val result = com.example.smartfrostapp.network.ApiClient.getItems(userToken)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { backendProducts ->
+                        products.clear()
+                        if (backendProducts.isNotEmpty()) {
+                            val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", Locale.getDefault())
+                            for (bp in backendProducts) {
+                                if (bp.deleted) continue
+                                val expiryDays = if (bp.expiration != null) {
+                                    com.example.smartfrostapp.utils.calculateDaysRemaining(bp.expiration.replace("-", ".").let {
+                                        val parts = it.split(".")
+                                        if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0].takeLast(2)}" else ""
+                                    })
+                                } else 7
+                                val quantityStr = if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt().toString() else bp.quantity.toString()
+                                products.add(
+                                    Product(
+                                        id = UUID.randomUUID().toString(),
+                                        name = bp.name,
+                                        quantity = "$quantityStr ${bp.unit}",
+                                        category = bp.category ?: "Прочее",
+                                        expiryDays = expiryDays,
+                                        icon = com.example.smartfrostapp.utils.Constants.suggestIcon(bp.name),
+                                        manufactureDate = bp.expiration?.let {
+                                            dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
+                                        } ?: "",
+                                        expiryDate = bp.expiration?.replace("-", ".")?.let {
+                                            val parts = it.split(".")
+                                            if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0].takeLast(2)}" else ""
+                                        } ?: "",
+                                        addedDate = dateFormat.format(java.util.Date()),
+                                        backendId = bp.id
+                                    )
+                                )
+                            }
+                            ProductRepository.saveProducts(products)
+                        } else {
+                            products.addAll(listOf(
+                                Product("1", "Молоко 3.2%", "1 л", "Молочное", 3, "", manufactureDate = "20.10.23", expiryDate = "27.10.23", addedDate = "20.10.23"),
+                                Product("2", "Куриная грудка", "500 г", "Мясо", 2, "", manufactureDate = "22.10.23", expiryDate = "24.10.23", addedDate = "22.10.23"),
+                                Product("3", "Яблоки", "1.5 кг", "Фрукты", 14, "🍎", manufactureDate = "15.10.23", expiryDate = "29.10.23", addedDate = "15.10.23")
+                            ))
+                            ProductRepository.saveProducts(products)
+                        }
+                        showMain()
+                    },
+                    onFailure = { error ->
+                        Toast.makeText(this@MainActivity, "Ошибка загрузки продуктов: ${error.message}", Toast.LENGTH_SHORT).show()
+                        showMain()
                     }
-                } else {
-                    onResult(null, null, "Ошибка сервера: ${connection.responseCode}")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onResult(null, null, "Ошибка сети: ${e.message}")
+                )
             }
         }
-    } // 👈 ВОТ ТУТ закрывается функция регистрации!
+    }
 
-    // 👇 А здесь начинается независимая функция логина!
+    private fun syncAddProductToBackend(product: Product) {
+        if (userToken.isEmpty()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val expirationStr = if (product.expiryDate.isNotEmpty()) {
+                    val parts = product.expiryDate.split(".")
+                    if (parts.size == 3) "20${parts[2]}-${parts[1]}-${parts[0]}" else null
+                } else null
+
+                val qtyParts = product.quantity.split(" ")
+                val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+
+                val backendItem = com.example.smartfrostapp.network.ApiClient.BackendProductItem(
+                    name = product.name,
+                    quantity = qtyDouble.toString(),
+                    unit = unit,
+                    category = product.category,
+                    expiration = expirationStr
+                )
+
+                val result = com.example.smartfrostapp.network.ApiClient.addItems(userToken, listOf(backendItem))
+                result.fold(
+                    onSuccess = {
+                        val backendProducts = com.example.smartfrostapp.network.ApiClient.getItems(userToken).getOrNull()
+                        backendProducts?.let { bpList ->
+                            val latestProduct = bpList.maxByOrNull { it.id }
+                            latestProduct?.let { lp ->
+                                val index = products.indexOfFirst { it.id == product.id }
+                                if (index != -1) {
+                                    products[index] = product.copy(backendId = lp.id)
+                                    ProductRepository.saveProducts(products)
+                                }
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.e("SyncAdd", "Failed: ${error.message}")
+                    }
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("SyncAdd", "Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun syncUpdateProductToBackend(product: Product) {
+        if (userToken.isEmpty() || product.backendId == 0) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val expirationStr = if (product.expiryDate.isNotEmpty()) {
+                    val parts = product.expiryDate.split(".")
+                    if (parts.size == 3) "20${parts[2]}-${parts[1]}-${parts[0]}" else null
+                } else null
+
+                val qtyParts = product.quantity.split(" ")
+                val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+
+                val changes = mutableMapOf<String, Any>()
+                changes["name"] = product.name
+                changes["quantity"] = qtyDouble
+                changes["unit"] = unit
+                changes["category"] = product.category
+                if (expirationStr != null) changes["expiration"] = expirationStr
+
+                val result = com.example.smartfrostapp.network.ApiClient.updateItems(userToken, listOf(Pair(product.backendId, changes)))
+                result.fold(
+                    onSuccess = { android.util.Log.d("SyncUpdate", "Updated: $it") },
+                    onFailure = { error -> android.util.Log.e("SyncUpdate", "Failed: ${error.message}") }
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("SyncUpdate", "Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun syncDeleteProductToBackend(backendId: Int) {
+        if (userToken.isEmpty() || backendId == 0) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val result = com.example.smartfrostapp.network.ApiClient.deleteItems(userToken, listOf(backendId))
+                result.fold(
+                    onSuccess = { android.util.Log.d("SyncDelete", "Deleted: $it") },
+                    onFailure = { error -> android.util.Log.e("SyncDelete", "Failed: ${error.message}") }
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("SyncDelete", "Error: ${e.message}")
+            }
+        }
+    }
+
     private fun performBackendLogin(
         emailValue: String,
         passwordValue: String,
         onResult: (Int?, String?, String) -> Unit
     ) {
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val url = URL("${BASE_URL}login") // POST /login
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.doOutput = true
-
-                val jsonParam = JSONObject().apply {
-                    put("email", emailValue)
-                    put("password", passwordValue)
-                }
-
-                val os = OutputStreamWriter(connection.outputStream)
-                os.write(jsonParam.toString())
-                os.flush()
-                os.close()
-
-                if (connection.responseCode == 200) {
-                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                    val response = reader.readText()
-                    reader.close()
-
-                    val jsonResponse = JSONObject(response)
-                    val message = jsonResponse.optString("message")
-                    if (message == "success") {
-                        val id = jsonResponse.getInt("user_id")
-                        val token = jsonResponse.getString("token")
-                        onResult(id, token, "success")
-                    } else {
-                        onResult(null, null, "Неправильная почта или пароль")
+            val result = com.example.smartfrostapp.network.ApiClient.login(emailValue, passwordValue)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { authResponse ->
+                        onResult(authResponse.userId, authResponse.token, "success")
+                    },
+                    onFailure = { error ->
+                        onResult(null, null, error.message ?: "Ошибка сети")
                     }
-                } else {
-                    onResult(null, null, "Ошибка сервера: ${connection.responseCode}")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onResult(null, null, "Ошибка сети: ${e.message}")
+                )
             }
         }
+    }
+
+    private fun loadUserInfoFromBackend(token: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = com.example.smartfrostapp.network.ApiClient.getUser(token)
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { userInfo ->
+                        prefs.edit().apply {
+                            putString("user_name", userInfo.name)
+                            putString("user_email", userInfo.email)
+                            apply()
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.e("LoadUserInfo", "Failed: ${error.message}")
+                    }
+                )
+            }
+        }
+    }
+
+    // Запоминаем открытую вкладку перед тем, как экран перевернется
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("SAVED_TAB", binding.bottomNavigation.selectedItemId)
     }
 
 } // Конец класса MainActivity

@@ -24,6 +24,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".VerificationActivity"
+            android:exported="false"
+            android:label="Подтверждение почты" />
     </application>
 
 </manifest>

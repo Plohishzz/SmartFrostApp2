@@ -31,6 +31,7 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/user_name_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/user_name"
@@ -38,6 +39,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/user_email_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/user_email"
@@ -197,15 +199,7 @@
                     android:layout_marginHorizontal="16.dp"
                     android:background="?attr/colorOutlineVariant" />
 
-                <!-- Logout Item -->
-                <com.google.android.material.button.MaterialButton
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/settings_logout"
-                    android:textColor="?attr/colorError"
-                    app:icon="@android:drawable/ic_lock_power_off"
-                    app:iconTint="?attr/colorError" />
+
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

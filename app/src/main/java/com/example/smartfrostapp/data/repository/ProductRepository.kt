@@ -30,7 +30,8 @@ object ProductRepository {
                 product.isLocked.toString(),
                 product.manufactureDate,
                 product.expiryDate,
-                product.addedDate
+                product.addedDate,
+                product.backendId.toString()
             ).joinToString(SEP)
             editor.putString("$KEY_PREFIX$index", value)
         }
@@ -53,7 +54,8 @@ object ProductRepository {
                     isLocked = parts[6].toBoolean(),
                     manufactureDate = parts[7],
                     expiryDate = parts[8],
-                    addedDate = parts[9]
+                    addedDate = parts[9],
+                    backendId = parts.getOrNull(10)?.toIntOrNull() ?: 0
                 )
             } else null
         }
