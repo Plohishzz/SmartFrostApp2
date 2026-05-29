@@ -36,7 +36,7 @@ object ApiClient {
 
             val json = JSONObject(response)
             val message = json.optString("message", "")
-            if (message == "sent") {
+            if (message == "ok") {
                 Result.success("Код отправлен на $email")
             } else {
                 Result.failure(Exception(message))
@@ -74,7 +74,7 @@ object ApiClient {
 
             val json = JSONObject(response)
             val message = json.optString("message", "")
-            if (message == "success") {
+            if (message == "ok") {
                 val token = json.optString("token", "")
                 Result.success(token)
             } else {
@@ -119,10 +119,10 @@ object ApiClient {
             val message = json.optString("message", "")
 
             when (message) {
-                "success" -> {
+                "ok" -> {
                     val userId = json.optInt("user_id", 0)
                     val token = json.optString("token", "")
-                    Result.success(AuthResponse(userId, token, "success"))
+                    Result.success(AuthResponse(userId, token, "ok"))
                 }
                 "email exists" -> Result.failure(Exception("Этот Email уже зарегистрирован"))
                 "bad token" -> Result.failure(Exception("Токен верификации недействителен"))
@@ -164,10 +164,10 @@ object ApiClient {
             val json = JSONObject(response)
             val message = json.optString("message", "")
 
-            if (message == "success") {
+            if (message == "ok") {
                 val userId = json.optInt("user_id", 0)
                 val token = json.optString("token", "")
-                Result.success(AuthResponse(userId, token, "success"))
+                Result.success(AuthResponse(userId, token, "ok"))
             } else {
                 Result.failure(Exception("Неправильная почта или пароль"))
             }
@@ -194,7 +194,7 @@ object ApiClient {
             val json = JSONObject(response)
             val message = json.optString("message", "")
 
-            if (message == "success") {
+            if (message == "ok") {
                 val userObj = json.getJSONObject("user")
                 Result.success(
                     UserInfo(
@@ -230,7 +230,7 @@ object ApiClient {
             val json = JSONObject(response)
             val message = json.optString("message", "")
 
-            if (message == "success") {
+            if (message == "ok") {
                 val itemsArray = json.getJSONArray("items")
                 val products = mutableListOf<BackendProduct>()
                 for (i in 0 until itemsArray.length()) {
@@ -291,12 +291,11 @@ object ApiClient {
 
             val json = JSONObject(response)
             val message = json.optString("message", "")
-            if (message == "success") {
-                Result.success("success")
+            if (message == "ok") {
+                Result.success("ok")
             } else {
                 Result.failure(Exception(message))
-            }
-        } catch (e: Exception) {
+            }      } catch (e: Exception) {
             Log.e(TAG, "addItems error: ${e.message}")
             Result.failure(e)
         }
@@ -441,7 +440,7 @@ object ApiClient {
             val json = JSONObject(response)
             val message = json.optString("message", "")
 
-            if (message == "success") {
+            if (message == "ok") {
                 val itemsArray = json.getJSONArray("items")
                 val items = mutableListOf<BackendProductItem>()
                 for (i in 0 until itemsArray.length()) {

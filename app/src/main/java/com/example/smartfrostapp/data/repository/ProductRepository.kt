@@ -6,19 +6,19 @@ import com.example.smartfrostapp.data.model.Product
 import com.example.smartfrostapp.utils.calculateDaysRemaining
 
 object ProductRepository {
-    private const val PREFS_NAME = "product_data_prefs"
+    private const val PREFS_PREFIX = "product_data_prefs_user_"
     private const val KEY_COUNT = "products_count"
     private const val KEY_PREFIX = "product_"
     private const val SEP = "::"
 
-    private lateinit var prefs: SharedPreferences
+    private var prefs: SharedPreferences? = null
 
-    fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun init(context: Context, userId: Int) {
+        prefs = context.getSharedPreferences("$PREFS_PREFIX$userId", Context.MODE_PRIVATE)
     }
 
     fun saveProducts(products: List<Product>) {
-        val editor = prefs.edit()
+        val editor = prefs?.edit() ?: return
         editor.putInt(KEY_COUNT, products.size)
         products.forEachIndexed { index, product ->
             val value = listOf(
@@ -40,9 +40,10 @@ object ProductRepository {
     }
 
     fun loadProducts(): List<Product> {
-        val count = prefs.getInt(KEY_COUNT, 0)
+        val p = prefs ?: return emptyList()
+        val count = p.getInt(KEY_COUNT, 0)
         return (0 until count).mapNotNull { index ->
-            val value = prefs.getString("$KEY_PREFIX$index", null) ?: return@mapNotNull null
+            val value = p.getString("$KEY_PREFIX$index", null) ?: return@mapNotNull null
             val parts = value.split(SEP)
             if (parts.size >= 10) {
                 val expiryDate = parts[8]

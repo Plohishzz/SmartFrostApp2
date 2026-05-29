@@ -6,28 +6,29 @@ import com.example.smartfrostapp.data.model.ActionHistoryEntry
 import com.example.smartfrostapp.data.model.ActionType
 
 object ActionHistoryRepository {
-    private const val PREFS_NAME = "action_history_prefs"
+    private const val PREFS_PREFIX = "action_history_prefs_user_"
     private const val KEY_COUNT = "history_count"
     private const val KEY_PREFIX = "action_"
     private const val SEP = "|||"
     private const val FIELD_SEP = "::"
     private const val MAX_ENTRIES = 100
 
-    private lateinit var prefs: SharedPreferences
+    private var prefs: SharedPreferences? = null
 
-    fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun init(context: Context, userId: Int) {
+        prefs = context.getSharedPreferences("$PREFS_PREFIX$userId", Context.MODE_PRIVATE)
     }
 
     fun addEntry(entry: ActionHistoryEntry) {
-        val editor = prefs.edit()
-        val count = prefs.getInt(KEY_COUNT, 0)
-        val newCount = (count + 1).coerceAtMost(MAX_ENTRIES)
+        val editor = prefs?.edit() ?: return
+        val count = prefs?.getInt(KEY_COUNT, 0) ?: 0
 
-        if (newCount == MAX_ENTRIES && count >= MAX_ENTRIES) {
-            editor.remove("$KEY_PREFIX${count - MAX_ENTRIES}")
+        if (count >= MAX_ENTRIES) {
+            val oldestKey = "$KEY_PREFIX${(count % MAX_ENTRIES) + 1}"
+            editor.remove(oldestKey)
         }
 
+        val newIndex = (count % MAX_ENTRIES) + 1
         val value = listOf(
             entry.id,
             entry.type.name,
@@ -36,17 +37,20 @@ object ActionHistoryRepository {
             entry.productJson,
             entry.timestamp.toString()
         ).joinToString(SEP)
-        editor.putString("$KEY_PREFIX$newCount", value)
-        editor.putInt(KEY_COUNT, newCount)
+        editor.putString("$KEY_PREFIX$newIndex", value)
+        editor.putInt(KEY_COUNT, count + 1)
         editor.commit()
     }
 
     fun loadHistory(): List<ActionHistoryEntry> {
-        val count = prefs.getInt(KEY_COUNT, 0)
+        val p = prefs ?: return emptyList()
+        val count = p.getInt(KEY_COUNT, 0)
         val entries = mutableListOf<ActionHistoryEntry>()
-        val start = if (count >= MAX_ENTRIES) count - MAX_ENTRIES + 1 else 1
-        for (i in start..count) {
-            val value = prefs.getString("$KEY_PREFIX$i", null) ?: continue
+        val total = count.coerceAtMost(MAX_ENTRIES)
+        val start = if (count > MAX_ENTRIES) (count % MAX_ENTRIES) + 1 else 1
+        for (i in 0 until total) {
+            val idx = ((start - 1 + i) % MAX_ENTRIES) + 1
+            val value = p.getString("$KEY_PREFIX$idx", null) ?: continue
             val parts = value.split(SEP)
             if (parts.size >= 6) {
                 entries.add(ActionHistoryEntry(
@@ -58,7 +62,6 @@ object ActionHistoryRepository {
                     timestamp = parts[5].toLongOrNull() ?: 0L
                 ))
             } else {
-                // Backward compatibility with old "::" separator
                 val legacyParts = value.split("::")
                 if (legacyParts.size >= 15) {
                     val productJson = legacyParts.subList(4, 14).joinToString("::")
@@ -77,12 +80,12 @@ object ActionHistoryRepository {
     }
 
     fun removeEntry(entryId: String) {
-        val editor = prefs.edit()
-        val count = prefs.getInt(KEY_COUNT, 0)
+        val editor = prefs?.edit() ?: return
+        val count = prefs?.getInt(KEY_COUNT, 0) ?: 0
         val entries = mutableListOf<Pair<String, String>>()
         
         for (i in 1..count) {
-            val value = prefs.getString("$KEY_PREFIX$i", null)
+            val value = prefs?.getString("$KEY_PREFIX$i", null)
             if (value != null) {
                 entries.add("$KEY_PREFIX$i" to value)
             }
@@ -106,8 +109,8 @@ object ActionHistoryRepository {
     }
 
     fun clearHistory() {
-        val editor = prefs.edit()
-        val count = prefs.getInt(KEY_COUNT, 0)
+        val editor = prefs?.edit() ?: return
+        val count = prefs?.getInt(KEY_COUNT, 0) ?: 0
         for (i in 1..count) {
             editor.remove("$KEY_PREFIX$i")
         }

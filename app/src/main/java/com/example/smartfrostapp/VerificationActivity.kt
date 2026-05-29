@@ -89,6 +89,7 @@ class VerificationActivity : AppCompatActivity() {
                         Toast.makeText(this@VerificationActivity, "Регистрация успешна!", Toast.LENGTH_SHORT).show()
 
                         val intent = Intent(this@VerificationActivity, MainActivity::class.java)
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                         startActivity(intent)
                         finish()
                     },

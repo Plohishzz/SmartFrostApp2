@@ -125,9 +125,10 @@ class MainActivity : AppCompatActivity() {
         userToken = ""*/
 
         UserProductTemplates.init(this)
-        ProductRepository.init(this)
-        ActionHistoryRepository.init(this)
+        ProductRepository.init(this, userId)
+        ActionHistoryRepository.init(this, userId)
         BarcodeRepository.init(this)
+        com.example.smartfrostapp.data.repository.PendingSyncRepository.init(this)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -205,6 +206,11 @@ class MainActivity : AppCompatActivity() {
                                 apply()
                             }
 
+                            ProductRepository.init(this@MainActivity, id)
+                            ActionHistoryRepository.init(this@MainActivity, id)
+                            products.clear()
+                            products.addAll(ProductRepository.loadProducts())
+
                             loadUserInfoFromBackend(token)
                             showMain()
                         } else {
@@ -272,14 +278,11 @@ class MainActivity : AppCompatActivity() {
         products.clear()
 
         val saved = ProductRepository.loadProducts()
-        if (saved.isEmpty()) {
-            products.addAll(listOf(
-                Product("1", "Молоко 3.2%", "1 л", "Молочное", 3, "", manufactureDate = "20.10.23", expiryDate = "27.10.23", addedDate = "20.10.23"),
-                Product("2", "Куриная грудка", "500 г", "Мясо", 2, "", manufactureDate = "22.10.23", expiryDate = "24.10.23", addedDate = "22.10.23"),
-                Product("3", "Яблоки", "1.5 кг", "Фрукты", 14, "🍎", manufactureDate = "15.10.23", expiryDate = "29.10.23", addedDate = "15.10.23")
-            ))
-        } else {
-            products.addAll(saved)
+        products.addAll(saved)
+
+        if (userToken.isNotEmpty()) {
+            syncProductsFromBackend()
+            flushPendingSync()
         }
 
         if (binding.bottomNavigation.selectedItemId == targetTab) {
@@ -291,10 +294,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.bottomNavigation.selectedItemId = targetTab
         }
-
-        if (userToken.isNotEmpty()) {
-            syncProductsFromBackend()
-        }
     }
 
     private fun syncProductsFromBackend() {
@@ -303,10 +302,9 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 result.fold(
                     onSuccess = { backendProducts ->
-                        if (backendProducts.isEmpty()) return@fold
-
                         val dateFormat = java.text.SimpleDateFormat("dd.MM.yy", Locale.getDefault())
-                        var changed = false
+
+                        val syncedProducts = mutableListOf<Product>()
 
                         for (bp in backendProducts) {
                             if (bp.deleted) continue
@@ -316,52 +314,40 @@ class MainActivity : AppCompatActivity() {
                                 if (parts.size == 3) "${parts[2].takeLast(2)}.${parts[1]}.${parts[0]}" else ""
                             } ?: ""
 
-                            var existingIndex = products.indexOfFirst { it.backendId == bp.id }
-
-                            if (existingIndex == -1) {
-                                existingIndex = products.indexOfFirst {
-                                    it.backendId == 0 && it.name == bp.name && it.quantity == "${if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt() else bp.quantity} ${bp.unit}"
-                                }
-                            }
-
+                            val existingIndex = products.indexOfFirst { it.backendId == bp.id }
                             if (existingIndex != -1) {
                                 val local = products[existingIndex]
                                 val localHasDate = local.expiryDate.isNotEmpty()
                                 val backendHasDate = expiryDateStr.isNotEmpty()
 
-                                val needsUpdate = local.backendId != bp.id ||
-                                    (backendHasDate && !localHasDate) ||
-                                    (!backendHasDate && localHasDate)
-
-                                if (needsUpdate) {
-                                    val expiryDays = if (expiryDateStr.isNotEmpty()) {
-                                        com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDateStr)
-                                    } else {
-                                        local.expiryDays
-                                    }
-                                    products[existingIndex] = local.copy(
-                                        backendId = bp.id,
-                                        name = bp.name,
-                                        quantity = "${if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt() else bp.quantity} ${bp.unit}",
-                                        category = bp.category ?: local.category,
-                                        expiryDays = expiryDays,
-                                        expiryDate = if (backendHasDate) expiryDateStr else local.expiryDate,
-                                        manufactureDate = if (backendHasDate) {
-                                            bp.expiration?.let {
-                                                try {
-                                                    dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
-                                                } catch (e: Exception) { local.manufactureDate }
-                                            } ?: local.manufactureDate
-                                        } else local.manufactureDate
-                                    )
-                                    changed = true
+                                val expiryDays = if (expiryDateStr.isNotEmpty()) {
+                                    com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDateStr)
+                                } else if (backendHasDate && !localHasDate) {
+                                    7
+                                } else {
+                                    local.expiryDays
                                 }
+
+                                syncedProducts.add(local.copy(
+                                    backendId = bp.id,
+                                    quantity = "${if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt() else bp.quantity} ${bp.unit}",
+                                    category = bp.category ?: local.category,
+                                    expiryDays = expiryDays,
+                                    expiryDate = if (backendHasDate) expiryDateStr else local.expiryDate,
+                                    manufactureDate = if (backendHasDate) {
+                                        bp.expiration?.let {
+                                            try {
+                                                dateFormat.format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(it) ?: java.util.Date())
+                                            } catch (e: Exception) { local.manufactureDate }
+                                        } ?: local.manufactureDate
+                                    } else local.manufactureDate
+                                ))
                             } else {
                                 val expiryDays = if (expiryDateStr.isNotEmpty()) {
                                     com.example.smartfrostapp.utils.calculateDaysRemaining(expiryDateStr)
                                 } else 7
                                 val quantityStr = if (bp.quantity % 1.0 == 0.0) bp.quantity.toInt().toString() else bp.quantity.toString()
-                                products.add(
+                                syncedProducts.add(
                                     Product(
                                         id = UUID.randomUUID().toString(),
                                         name = bp.name,
@@ -379,14 +365,13 @@ class MainActivity : AppCompatActivity() {
                                         backendId = bp.id
                                     )
                                 )
-                                changed = true
                             }
                         }
 
-                        if (changed) {
-                            ProductRepository.saveProducts(products)
-                            currentProductsBinding?.let { applyFiltersAndSort(it) }
-                        }
+                        products.clear()
+                        products.addAll(syncedProducts)
+                        ProductRepository.saveProducts(products)
+                        currentProductsBinding?.let { applyFiltersAndSort(it) }
                     },
                     onFailure = { error ->
                         android.util.Log.e("SyncProducts", "Failed to load from backend: ${error.message}")
@@ -1089,6 +1074,8 @@ class MainActivity : AppCompatActivity() {
             userId = 0
             userToken = ""
             products.clear()
+            ProductRepository.init(this, 0)
+            ActionHistoryRepository.init(this, 0)
 
             showLogin()
         }
@@ -1351,8 +1338,20 @@ class MainActivity : AppCompatActivity() {
                             )
                         }
 
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            com.example.smartfrostapp.network.ApiClient.addItems(userToken, backendItemsForSync)
+                        if (userToken.isNotEmpty()) {
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                com.example.smartfrostapp.network.ApiClient.addItems(userToken, backendItemsForSync)
+                            }
+                        } else {
+                            newProducts.forEach { np ->
+                                val productJson = listOf(
+                                    np.id, np.name, np.quantity, np.category,
+                                    np.expiryDays.toString(), np.icon, np.isLocked.toString(),
+                                    np.manufactureDate, np.expiryDate, np.addedDate,
+                                    np.backendId.toString()
+                                ).joinToString("::")
+                                com.example.smartfrostapp.data.repository.PendingSyncRepository.addAddOperation(productJson)
+                            }
                         }
 
                         Toast.makeText(this@MainActivity, "Распознано продуктов: ${newProducts.size}", Toast.LENGTH_LONG).show()
@@ -1866,7 +1865,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncAddProductToBackend(product: Product) {
-        if (userToken.isEmpty()) return
+        if (userToken.isEmpty()) {
+            val productJson = listOf(
+                product.id, product.name, product.quantity, product.category,
+                product.expiryDays.toString(), product.icon, product.isLocked.toString(),
+                product.manufactureDate, product.expiryDate, product.addedDate,
+                product.backendId.toString()
+            ).joinToString("::")
+            com.example.smartfrostapp.data.repository.PendingSyncRepository.addAddOperation(productJson)
+            return
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val expirationStr = if (product.expiryDate.isNotEmpty()) {
@@ -1903,16 +1911,49 @@ class MainActivity : AppCompatActivity() {
                     },
                     onFailure = { error ->
                         android.util.Log.e("SyncAdd", "Failed: ${error.message}")
+                        val productJson = listOf(
+                            product.id, product.name, product.quantity, product.category,
+                            product.expiryDays.toString(), product.icon, product.isLocked.toString(),
+                            product.manufactureDate, product.expiryDate, product.addedDate,
+                            product.backendId.toString()
+                        ).joinToString("::")
+                        com.example.smartfrostapp.data.repository.PendingSyncRepository.addAddOperation(productJson)
                     }
                 )
             } catch (e: Exception) {
                 android.util.Log.e("SyncAdd", "Error: ${e.message}")
+                val productJson = listOf(
+                    product.id, product.name, product.quantity, product.category,
+                    product.expiryDays.toString(), product.icon, product.isLocked.toString(),
+                    product.manufactureDate, product.expiryDate, product.addedDate,
+                    product.backendId.toString()
+                ).joinToString("::")
+                com.example.smartfrostapp.data.repository.PendingSyncRepository.addAddOperation(productJson)
             }
         }
     }
 
     private fun syncUpdateProductToBackend(product: Product) {
-        if (userToken.isEmpty() || product.backendId == 0) return
+        if (userToken.isEmpty() || product.backendId == 0) {
+            if (product.backendId != 0) {
+                val expirationStr = if (product.expiryDate.isNotEmpty()) {
+                    val parts = product.expiryDate.split(".")
+                    if (parts.size == 3) "20${parts[2]}-${parts[1]}-${parts[0]}" else null
+                } else null
+                val qtyParts = product.quantity.split(" ")
+                val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+                val changes = mutableMapOf<String, Any>()
+                changes["name"] = product.name
+                changes["quantity"] = qtyDouble
+                changes["unit"] = unit
+                changes["category"] = product.category
+                if (expirationStr != null) changes["expiration"] = expirationStr
+                val changesJson = JSONObject(changes).toString()
+                com.example.smartfrostapp.data.repository.PendingSyncRepository.addUpdateOperation(product.backendId, changesJson)
+            }
+            return
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val expirationStr = if (product.expiryDate.isNotEmpty()) {
@@ -1934,25 +1975,136 @@ class MainActivity : AppCompatActivity() {
                 val result = com.example.smartfrostapp.network.ApiClient.updateItems(userToken, listOf(Pair(product.backendId, changes)))
                 result.fold(
                     onSuccess = { android.util.Log.d("SyncUpdate", "Updated: $it") },
-                    onFailure = { error -> android.util.Log.e("SyncUpdate", "Failed: ${error.message}") }
+                    onFailure = { error ->
+                        android.util.Log.e("SyncUpdate", "Failed: ${error.message}")
+                        val changesJson = JSONObject(changes).toString()
+                        com.example.smartfrostapp.data.repository.PendingSyncRepository.addUpdateOperation(product.backendId, changesJson)
+                    }
                 )
             } catch (e: Exception) {
                 android.util.Log.e("SyncUpdate", "Error: ${e.message}")
+                val expirationStr = if (product.expiryDate.isNotEmpty()) {
+                    val parts = product.expiryDate.split(".")
+                    if (parts.size == 3) "20${parts[2]}-${parts[1]}-${parts[0]}" else null
+                } else null
+                val qtyParts = product.quantity.split(" ")
+                val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+                val changes = mutableMapOf<String, Any>()
+                changes["name"] = product.name
+                changes["quantity"] = qtyDouble
+                changes["unit"] = unit
+                changes["category"] = product.category
+                if (expirationStr != null) changes["expiration"] = expirationStr
+                val changesJson = JSONObject(changes).toString()
+                com.example.smartfrostapp.data.repository.PendingSyncRepository.addUpdateOperation(product.backendId, changesJson)
             }
         }
     }
 
     private fun syncDeleteProductToBackend(backendId: Int) {
-        if (userToken.isEmpty() || backendId == 0) return
+        if (userToken.isEmpty() || backendId == 0) {
+            if (backendId != 0) {
+                com.example.smartfrostapp.data.repository.PendingSyncRepository.addDeleteOperation(backendId)
+            }
+            return
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val result = com.example.smartfrostapp.network.ApiClient.deleteItems(userToken, listOf(backendId))
                 result.fold(
                     onSuccess = { android.util.Log.d("SyncDelete", "Deleted: $it") },
-                    onFailure = { error -> android.util.Log.e("SyncDelete", "Failed: ${error.message}") }
+                    onFailure = { error ->
+                        android.util.Log.e("SyncDelete", "Failed: ${error.message}")
+                        com.example.smartfrostapp.data.repository.PendingSyncRepository.addDeleteOperation(backendId)
+                    }
                 )
             } catch (e: Exception) {
                 android.util.Log.e("SyncDelete", "Error: ${e.message}")
+                com.example.smartfrostapp.data.repository.PendingSyncRepository.addDeleteOperation(backendId)
+            }
+        }
+    }
+
+    private fun flushPendingSync() {
+        if (userToken.isEmpty()) return
+        val repo = com.example.smartfrostapp.data.repository.PendingSyncRepository
+        if (!repo.hasPendingOperations()) return
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val queue = repo.loadQueue()
+            val toRemove = mutableListOf<Int>()
+
+            for (i in 0 until queue.length()) {
+                val op = queue.getJSONObject(i)
+                val type = op.optString("type", "")
+                try {
+                    when (type) {
+                        "add" -> {
+                            val productJson = op.optString("product", "")
+                            val parts = productJson.split("::")
+                            if (parts.size >= 10) {
+                                val expirationStr = if (parts[8].isNotEmpty()) {
+                                    val dParts = parts[8].split(".")
+                                    if (dParts.size == 3) "20${dParts[2]}-${dParts[1]}-${dParts[0]}" else null
+                                } else null
+                                val qtyParts = parts[2].split(" ")
+                                val qtyDouble = qtyParts[0].toDoubleOrNull() ?: 1.0
+                                val unit = if (qtyParts.size > 1) qtyParts[1] else "шт"
+                                val backendItem = com.example.smartfrostapp.network.ApiClient.BackendProductItem(
+                                    name = parts[1],
+                                    quantity = qtyDouble.toString(),
+                                    unit = unit,
+                                    category = parts[3],
+                                    expiration = expirationStr
+                                )
+                                com.example.smartfrostapp.network.ApiClient.addItems(userToken, listOf(backendItem))
+                            }
+                        }
+                        "update" -> {
+                            val backendId = op.optInt("backendId", 0)
+                            val changesJson = op.optString("changes", "{}")
+                            val changes = mutableMapOf<String, Any>()
+                            val obj = JSONObject(changesJson)
+                            obj.keys().forEach { key ->
+                                when (val v = obj.get(key)) {
+                                    is String -> changes[key] = v
+                                    is Number -> changes[key] = v.toDouble()
+                                    is Boolean -> changes[key] = v
+                                }
+                            }
+                            if (backendId != 0 && changes.isNotEmpty()) {
+                                com.example.smartfrostapp.network.ApiClient.updateItems(userToken, listOf(Pair(backendId, changes)))
+                            }
+                        }
+                        "delete" -> {
+                            val backendId = op.optInt("backendId", 0)
+                            if (backendId != 0) {
+                                com.example.smartfrostapp.network.ApiClient.deleteItems(userToken, listOf(backendId))
+                            }
+                        }
+                    }
+                    toRemove.add(i)
+                } catch (e: Exception) {
+                    android.util.Log.e("FlushSync", "Failed op $i: ${e.message}")
+                }
+            }
+
+            if (toRemove.isNotEmpty()) {
+                val newQueue = JSONArray()
+                for (i in 0 until queue.length()) {
+                    if (!toRemove.contains(i)) {
+                        newQueue.put(queue.getJSONObject(i))
+                    }
+                }
+                repo.saveQueue(newQueue)
+            }
+
+            val backendProducts = com.example.smartfrostapp.network.ApiClient.getItems(userToken).getOrNull()
+            backendProducts?.let {
+                runOnUiThread {
+                    syncProductsFromBackend()
+                }
             }
         }
     }
